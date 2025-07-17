@@ -10,6 +10,7 @@ import { fetchAndParse as fetchOpenAI, fetchOpenAINews } from '../src/adapters/o
 import { fetchAndParse as fetchTechCrunch } from '../src/adapters/techCrunch';
 import { fetchAndParse as fetchVentureBeat } from '../src/adapters/ventureBeat';
 import { fetchAndParse as fetchMitSloan } from '../src/adapters/mit-sloan';
+import { fetchAndParse as fetchTldr } from '../src/adapters/tldr';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -45,6 +46,10 @@ const adapters = {
   mitsloan: {
     name: 'MIT Sloan Management Review',
     fetchAndParse: () => fetchMitSloan()
+  },
+  tldr: {
+    name: 'TLDR.tech',
+    fetchAndParse: () => fetchTldr()
   },
   
   // Individual arXiv feeds
