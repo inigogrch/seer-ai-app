@@ -12,6 +12,7 @@ import { fetchAndParse as fetchVentureBeat } from '../src/adapters/ventureBeat';
 import { fetchAndParse as fetchMitSloan } from '../src/adapters/mit-sloan';
 import { fetchAndParse as fetchTldr } from '../src/adapters/tldr';
 import { fetchAndParse as fetchHuggingface } from '../src/adapters/huggingface';
+import { fetchAndParse as fetchGoogleResearch } from '../src/adapters/google-research';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -55,6 +56,10 @@ const adapters = {
   huggingface: {
     name: 'HuggingFace Papers',
     fetchAndParse: () => fetchHuggingface()
+  },
+  googleresearch: {
+    name: 'Google Research Blog',
+    fetchAndParse: () => fetchGoogleResearch()
   },
   
   // Individual arXiv feeds
