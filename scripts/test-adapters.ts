@@ -7,6 +7,7 @@ import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fe
 import { fetchAndParse as fetchAws, fetchAwsBigData, fetchAwsMachineLearning, fetchAwsStartups, fetchAwsDeveloper, fetchAwsDatabase } from '../src/adapters/aws';
 import { fetchAndParse as fetchMicrosoft, fetchMicrosoft365Insider, fetchMicrosoftExcel } from '../src/adapters/microsoft';
 import { fetchAndParse as fetchOpenAI, fetchOpenAINews } from '../src/adapters/openai';
+import { fetchAndParse as fetchTechCrunch } from '../src/adapters/techCrunch';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -30,6 +31,10 @@ const adapters = {
   openai: {
     name: 'OpenAI News',
     fetchAndParse: () => fetchOpenAI()
+  },
+  techcrunch: {
+    name: 'TechCrunch',
+    fetchAndParse: () => fetchTechCrunch()
   },
   
   // Individual arXiv feeds
