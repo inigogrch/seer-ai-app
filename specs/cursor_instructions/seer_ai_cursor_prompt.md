@@ -5,7 +5,7 @@ You are an expert TypeScript architect using openai‑agents‑js, Next.js 14, 
 Leverage the following reference files already in context:
 
 • System & PRD – `agentic_system_design_spec.md` (overall architecture) and `seer_ai_prd.md` (functional scope, KPIs)
-• Database – `008_finalize_production_schema.sql` (final production schema) — use it verbatim as the first migration
+• Database – `finalize_production_schema.sql` (final production schema) — use it verbatim as the first migration
 • Adapters & Ingestion – `adapter_spec.md` (adapter contract) and `ingestion_agent_spec.md` (reference implementation)
 • Integration workflow – `cursor_integration_checklist.md` (best‑practice task structure)
 

@@ -20,9 +20,9 @@ interface ParsedItem {
   source_slug: string;       // Must match table `sources.name`
   title: string;             // Article headline/title
   url: string;               // Absolute HTTP(S) link to full article
-  summary: string;           // Teaser/summary from feed
+  content: string;           // All content/summaries available from feed
   published_at: string;      // ISO 8601 timestamp (e.g., "2025-07-15T13:45:00Z")
-  author?: string;           // Optional author name
+  author?: string;           // Optional author name(s)
   image_url?: string;        // Optional featured image URL
   original_metadata: any;    // Raw feed data payload (for debugging/replay)
 }
@@ -51,7 +51,7 @@ interface ParsedItem {
 
 4. **Fallback Logic**
 
-   - If `summary` is missing, temporarily set to `""` (agent will fallback to extracting full content).
+   - If `content` is missing, temporarily set to `""` (agent will fallback to extracting full content).
    - If `image_url` is missing or invalid, omit the property.
 
 5. **Construct ParsedItem[]**

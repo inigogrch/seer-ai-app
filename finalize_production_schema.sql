@@ -1,5 +1,5 @@
 -- Migration: Finalize Production Schema
--- Date: 2025-01-27
+-- Date: 2025-07-15
 -- Description: Complete schema finalization with all required fields for production
 
 -- Enable required extensions
@@ -13,7 +13,7 @@ DROP TABLE IF EXISTS embeddings CASCADE;
 CREATE TABLE IF NOT EXISTS sources (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
-    type TEXT NOT NULL CHECK (type IN ('rss', 'atom', 'api', 'web_scrape')),
+    type TEXT NOT NULL CHECK (type IN ('rss', 'api', 'web_scrape')),
     endpoint_url TEXT NOT NULL,
     fetch_freq_min INTEGER NOT NULL DEFAULT 60,
     is_active BOOLEAN DEFAULT true,
@@ -33,7 +33,7 @@ CREATE TABLE stories (
     title TEXT NOT NULL,
     url TEXT NOT NULL,
     content TEXT NOT NULL,
-    summary TEXT, -- Short excerpt/description for cards
+    summary TEXT, -- Short excerpt/description for summarization feat.
     author TEXT, -- Extracted author name
     image_url TEXT, -- Featured image for story cards
     
@@ -74,6 +74,7 @@ CREATE INDEX stories_author_idx ON stories (author) WHERE author IS NOT NULL;
 -- Text search indexes
 CREATE INDEX stories_title_text_idx ON stories USING gin (to_tsvector('english', title));
 CREATE INDEX stories_content_text_idx ON stories USING gin (to_tsvector('english', content));
+CREATE INDEX stories_summary_text_idx ON stories USING gin (to_tsvector('english', summary));
 
 -- Array and JSONB indexes
 CREATE INDEX stories_tags_gin_idx ON stories USING gin (tags);
@@ -270,22 +271,38 @@ COMMENT ON INDEX stories_embedding_cosine_idx IS 'Vector similarity search index
 COMMENT ON INDEX stories_tags_gin_idx IS 'GIN index for efficient tag array queries';
 COMMENT ON INDEX stories_title_text_idx IS 'Full-text search index for title content';
 
--- Insert default sources for Wave 1 (if not exists)
+-- Insert/merge all Wave-1 feeds (unique name per endpoint)
 INSERT INTO sources (name, type, endpoint_url, fetch_freq_min) VALUES
-    ('AWS Big Data Blog', 'rss', 'https://aws.amazon.com/blogs/big-data/feed/', 60),
-    ('OpenAI Official Blog', 'rss', 'https://openai.com/blog/rss.xml', 60),
-    ('Microsoft Excel & Power BI Blog', 'rss', 'https://powerbi.microsoft.com/en-us/blog/feed/', 120),
-    ('PyPI Top Packages', 'api', 'pypi-packages', 180),
-    ('arXiv AI/ML Papers', 'api', 'http://export.arxiv.org/api/query', 1440),
-    ('Google Research Blog', 'web_scrape', 'https://ai.googleblog.com/', 360),
-    ('HuggingFace Papers', 'web_scrape', 'https://huggingface.co/papers', 1440),
-    ('MIT Technology Review', 'rss', 'https://www.technologyreview.com/feed/', 720),
-    ('TechCrunch', 'rss', 'https://techcrunch.com/feed/', 30),
-    ('TLDR.tech', 'rss', 'https://tldr.tech/api/rss/tech', 720),
-    ('MIT Sloan Management Review', 'rss', 'https://sloanreview.mit.edu/feed/', 1440),
-    ('VentureBeat', 'rss', 'https://venturebeat.com/feed/', 60),
-    ('Ars Technica', 'rss', 'https://feeds.arstechnica.com/arstechnica/index', 60)
+    -- Research
+    ('arXiv Computer Science',          'rss',        'https://rss.arxiv.org/rss/cs',                                           60),
+    ('arXiv Statistics',               'rss',        'https://rss.arxiv.org/rss/stat',                                         60),
+    ('Hugging Face Papers',            'web_scrape', 'https://huggingface.co/papers',                                          1440),
+    ('Google Research Blog',           'web_scrape', 'https://research.google/blog/',                                           360),
+    ('MIT News Research',            'rss',        'https://news.mit.edu/rss/research',                                       720),
+    ('MIT News Data',               'rss',        'https://news.mit.edu/topic/mitdata-rss.xml',                              720),
+    ('MIT News AI',                 'rss',        'https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml',          720),
+
+    -- Big-Tech Blogs
+    ('AWS Big Data Blog',              'rss',        'https://aws.amazon.com/blogs/big-data/feed/',                              60),
+    ('AWS Machine Learning Blog',      'rss',        'https://aws.amazon.com/blogs/machine-learning/feed/',                      60),
+    ('AWS Startups Blog',              'rss',        'https://aws.amazon.com/blogs/startups/feed/',                              60),
+    ('AWS Developer Blog',             'rss',        'https://aws.amazon.com/blogs/developer/feed/',                             60),
+    ('AWS Database Blog',              'rss',        'https://aws.amazon.com/blogs/database/feed/',                              60),
+    ('Microsoft 365 Insider Blog',     'rss',        'https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=Microsoft365InsiderBlog', 120),
+    ('Microsoft Excel Blog',           'rss',        'https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=ExcelBlog',                  120),
+    ('Microsoft Power BI Blog',        'rss',        'https://powerbi.microsoft.com/en-us/blog/feed/',                           120),
+    ('OpenAI News',                    'rss',        'https://openai.com/news/rss.xml',                                          60),
+    ('Anthropic News',                 'web_scrape', 'https://www.anthropic.com/news',                                         1440),
+
+    -- News Updates
+    ('Ars Technica',                   'rss',        'https://feeds.arstechnica.com/arstechnica/index',                          60),
+    ('TechCrunch',                     'rss',        'https://techcrunch.com/feed/',                                             30),
+    ('VentureBeat',                    'rss',        'https://venturebeat.com/feed/',                                            60),
+    ('TLDR.tech (Tech Edition)',       'rss',        'https://tldr.tech/api/rss/tech',                                           720),
+    ('Hacker News Top Stories',        'api',        'https://github.com/HackerNews/API',                                        15),
+    ('MIT Sloan Management Review',    'rss',        'https://sloanreview.mit.edu/feed/',                                       1440)
 ON CONFLICT (name) DO NOTHING;
+
 
 -- Performance optimization settings
 ANALYZE stories;
