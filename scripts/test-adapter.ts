@@ -4,6 +4,7 @@
 
 import { fetchAndParse as fetchArxiv, fetchAndParseCs, fetchAndParseStat } from '../src/adapters/arxiv';
 import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit';
+import { fetchAndParse as fetchAws, fetchAwsBigData, fetchAwsMachineLearning, fetchAwsStartups, fetchAwsDeveloper, fetchAwsDatabase } from '../src/adapters/aws';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -15,6 +16,10 @@ const adapters = {
   mit: {
     name: 'MIT News (All Feeds)',
     fetchAndParse: () => fetchMit()
+  },
+  aws: {
+    name: 'AWS Blogs (All Feeds)',
+    fetchAndParse: () => fetchAws()
   },
   
   // Individual arXiv feeds
@@ -39,6 +44,28 @@ const adapters = {
   mitAI: {
     name: 'MIT News - AI',
     fetchAndParse: fetchAndParseAI
+  },
+  
+  // Individual AWS feeds
+  awsBigData: {
+    name: 'AWS Big Data Blog',
+    fetchAndParse: fetchAwsBigData
+  },
+  awsMachineLearning: {
+    name: 'AWS Machine Learning Blog',
+    fetchAndParse: fetchAwsMachineLearning
+  },
+  awsStartups: {
+    name: 'AWS Startups Blog',
+    fetchAndParse: fetchAwsStartups
+  },
+  awsDeveloper: {
+    name: 'AWS Developer Blog',
+    fetchAndParse: fetchAwsDeveloper
+  },
+  awsDatabase: {
+    name: 'AWS Database Blog',
+    fetchAndParse: fetchAwsDatabase
   }
 } as const;
 
