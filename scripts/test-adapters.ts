@@ -3,7 +3,17 @@
 // Run with: npx tsx scripts/test-adapter.ts [adapter-name]
 
 import { fetchAndParse as fetchArxiv, fetchAndParseCs, fetchAndParseStat } from '../src/adapters/arxiv';
-import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit';
+import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit-research';
+import { fetchAndParse as fetchAws, fetchAwsBigData, fetchAwsMachineLearning, fetchAwsStartups, fetchAwsDeveloper, fetchAwsDatabase } from '../src/adapters/aws';
+import { fetchAndParse as fetchMicrosoft, fetchMicrosoft365Insider, fetchMicrosoftExcel } from '../src/adapters/microsoft';
+import { fetchAndParse as fetchOpenAI, fetchOpenAINews } from '../src/adapters/openai';
+import { fetchAndParse as fetchTechCrunch } from '../src/adapters/techCrunch';
+import { fetchAndParse as fetchVentureBeat } from '../src/adapters/ventureBeat';
+import { fetchAndParse as fetchMitSloan } from '../src/adapters/mit-sloan';
+import { fetchAndParse as fetchTldr } from '../src/adapters/tldr';
+import { fetchAndParse as fetchHuggingface } from '../src/adapters/huggingface';
+import { fetchAndParse as fetchGoogleResearch } from '../src/adapters/google-research';
+import { fetchAndParse as fetchAnthropic } from '../src/adapters/anthropic';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -15,6 +25,46 @@ const adapters = {
   mit: {
     name: 'MIT News (All Feeds)',
     fetchAndParse: () => fetchMit()
+  },
+  aws: {
+    name: 'AWS Blogs (All Feeds)',
+    fetchAndParse: () => fetchAws()
+  },
+  microsoft: {
+    name: 'Microsoft Blogs (All Feeds)',
+    fetchAndParse: () => fetchMicrosoft()
+  },
+  openai: {
+    name: 'OpenAI News',
+    fetchAndParse: () => fetchOpenAI()
+  },
+  techcrunch: {
+    name: 'TechCrunch',
+    fetchAndParse: () => fetchTechCrunch()
+  },
+  venturebeat: {
+    name: 'VentureBeat',
+    fetchAndParse: () => fetchVentureBeat()
+  },
+  mitsloan: {
+    name: 'MIT Sloan Management Review',
+    fetchAndParse: () => fetchMitSloan()
+  },
+  tldr: {
+    name: 'TLDR.tech',
+    fetchAndParse: () => fetchTldr()
+  },
+  huggingface: {
+    name: 'HuggingFace Papers',
+    fetchAndParse: () => fetchHuggingface()
+  },
+  googleresearch: {
+    name: 'Google Research Blog',
+    fetchAndParse: () => fetchGoogleResearch()
+  },
+  anthropic: {
+    name: 'Anthropic News',
+    fetchAndParse: () => fetchAnthropic()
   },
   
   // Individual arXiv feeds
@@ -39,6 +89,44 @@ const adapters = {
   mitAI: {
     name: 'MIT News - AI',
     fetchAndParse: fetchAndParseAI
+  },
+  
+  // Individual AWS feeds
+  awsBigData: {
+    name: 'AWS Big Data Blog',
+    fetchAndParse: fetchAwsBigData
+  },
+  awsMachineLearning: {
+    name: 'AWS Machine Learning Blog',
+    fetchAndParse: fetchAwsMachineLearning
+  },
+  awsStartups: {
+    name: 'AWS Startups Blog',
+    fetchAndParse: fetchAwsStartups
+  },
+  awsDeveloper: {
+    name: 'AWS Developer Blog',
+    fetchAndParse: fetchAwsDeveloper
+  },
+  awsDatabase: {
+    name: 'AWS Database Blog',
+    fetchAndParse: fetchAwsDatabase
+  },
+  
+  // Individual Microsoft feeds
+  microsoft365Insider: {
+    name: 'Microsoft 365 Insider Blog',
+    fetchAndParse: fetchMicrosoft365Insider
+  },
+  microsoftExcel: {
+    name: 'Microsoft Excel Blog',
+    fetchAndParse: fetchMicrosoftExcel
+  },
+  
+  // Individual OpenAI feeds
+  openaiNews: {
+    name: 'OpenAI News',
+    fetchAndParse: fetchOpenAINews
   }
 } as const;
 

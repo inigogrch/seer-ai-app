@@ -115,8 +115,14 @@ function normalizeItem(item: ArxivRssItem, sourceSlug: string): ParsedItem | nul
     return null;
   }
   
-  // Normalize and validate fields
-  const external_id = normalizeString(item.guid);
+  // Extract canonical arXiv ID from GUID
+  // Format: oai:arXiv.org:2507.10572v1 → 2507.10572
+  const external_id = extractCanonicalArxivId(item.guid);
+  if (!external_id) {
+    console.warn(`[${sourceSlug}] Skipping item with invalid arXiv ID format: ${item.guid}`);
+    return null;
+  }
+  
   const title = normalizeString(item.title);
   const url = normalizeUrl(item.link);
   const content = normalizeContent(item.content || item.contentSnippet || '');
@@ -140,6 +146,24 @@ function normalizeItem(item: ArxivRssItem, sourceSlug: string): ParsedItem | nul
     // No image_url for arXiv RSS feeds
     original_metadata: item as Record<string, unknown>
   };
+}
+
+function extractCanonicalArxivId(guid: string): string | null {
+  // Remove oai:arXiv.org: prefix and version suffix (vN)
+  // Input: oai:arXiv.org:2507.10572v1
+  // Output: 2507.10572
+  const match = guid.match(/oai:arXiv\.org:(\d{4}\.\d{4,5})(?:v\d+)?$/);
+  if (match) {
+    return match[1];
+  }
+  
+  // Fallback: try to extract just the arXiv ID pattern
+  const directMatch = guid.match(/(\d{4}\.\d{4,5})(?:v\d+)?$/);
+  if (directMatch) {
+    return directMatch[1];
+  }
+  
+  return null;
 }
 
 function normalizeString(str?: string): string {
