@@ -5,6 +5,7 @@
 import { fetchAndParse as fetchArxiv, fetchAndParseCs, fetchAndParseStat } from '../src/adapters/arxiv';
 import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit';
 import { fetchAndParse as fetchAws, fetchAwsBigData, fetchAwsMachineLearning, fetchAwsStartups, fetchAwsDeveloper, fetchAwsDatabase } from '../src/adapters/aws';
+import { fetchAndParse as fetchMicrosoft, fetchMicrosoft365Insider, fetchMicrosoftExcel } from '../src/adapters/microsoft';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -20,6 +21,10 @@ const adapters = {
   aws: {
     name: 'AWS Blogs (All Feeds)',
     fetchAndParse: () => fetchAws()
+  },
+  microsoft: {
+    name: 'Microsoft Blogs (All Feeds)',
+    fetchAndParse: () => fetchMicrosoft()
   },
   
   // Individual arXiv feeds
@@ -66,6 +71,16 @@ const adapters = {
   awsDatabase: {
     name: 'AWS Database Blog',
     fetchAndParse: fetchAwsDatabase
+  },
+  
+  // Individual Microsoft feeds
+  microsoft365Insider: {
+    name: 'Microsoft 365 Insider Blog',
+    fetchAndParse: fetchMicrosoft365Insider
+  },
+  microsoftExcel: {
+    name: 'Microsoft Excel Blog',
+    fetchAndParse: fetchMicrosoftExcel
   }
 } as const;
 
