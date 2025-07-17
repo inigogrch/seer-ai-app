@@ -3,12 +3,13 @@
 // Run with: npx tsx scripts/test-adapter.ts [adapter-name]
 
 import { fetchAndParse as fetchArxiv, fetchAndParseCs, fetchAndParseStat } from '../src/adapters/arxiv';
-import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit';
+import { fetchAndParse as fetchMit, fetchAndParseResearch, fetchAndParseData, fetchAndParseAI } from '../src/adapters/mit-research';
 import { fetchAndParse as fetchAws, fetchAwsBigData, fetchAwsMachineLearning, fetchAwsStartups, fetchAwsDeveloper, fetchAwsDatabase } from '../src/adapters/aws';
 import { fetchAndParse as fetchMicrosoft, fetchMicrosoft365Insider, fetchMicrosoftExcel } from '../src/adapters/microsoft';
 import { fetchAndParse as fetchOpenAI, fetchOpenAINews } from '../src/adapters/openai';
 import { fetchAndParse as fetchTechCrunch } from '../src/adapters/techCrunch';
 import { fetchAndParse as fetchVentureBeat } from '../src/adapters/ventureBeat';
+import { fetchAndParse as fetchMitSloan } from '../src/adapters/mit-sloan';
 import type { ParsedItem } from '../src/types/adapter';
 
 const adapters = {
@@ -40,6 +41,10 @@ const adapters = {
   venturebeat: {
     name: 'VentureBeat',
     fetchAndParse: () => fetchVentureBeat()
+  },
+  mitsloan: {
+    name: 'MIT Sloan Management Review',
+    fetchAndParse: () => fetchMitSloan()
   },
   
   // Individual arXiv feeds
