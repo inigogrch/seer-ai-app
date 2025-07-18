@@ -11,6 +11,8 @@ interface RSSItem {
   description?: string;
   categories?: string[];
   category?: string | string[];
+  content?: string;
+  contentSnippet?: string;
 }
 
 // OpenAI news feed configuration
@@ -62,18 +64,22 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
   const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
   const description = normalizeDescription(item);
   
+  // Don't use RSS content to ensure IngestionAgent tries direct fetch
+  const rssContent = item.content || item.contentSnippet || description || '';
+  
   return {
     external_id: item.guid,
     source_slug: sourceSlug,
     title: item.title.trim(),
     url: item.link,
-    content: '', // Leave empty - content will be scraped by ingestion agent
+    content: '', // Use RSS content
     published_at: publishedAt,
     author: undefined, // OpenAI RSS doesn't include author info
     image_url: undefined, // No image info in RSS feed
     original_metadata: {
       description,
       categories: normalizeCategories(item),
+      rss_content_length: rssContent.length,
       raw_item: item
     }
   };

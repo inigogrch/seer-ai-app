@@ -182,10 +182,10 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       
       return {
         external_id: `tldr-${urlHash}`,
-                  source_slug: 'tldr_tech', // Single feed adapter
+        source_slug: 'tldr_tech', // Single feed adapter
         title: story.title,
         url: story.url,
-        content: '', // Leave empty - ingestion agent will scrape full content
+        content: '', // Empty to trigger IngestionAgent content enrichment
         published_at: story.publishedAt.toISOString(),
         author: undefined, // TLDR.tech aggregates content from multiple sources
         image_url: undefined, // Will be extracted by ingestion agent

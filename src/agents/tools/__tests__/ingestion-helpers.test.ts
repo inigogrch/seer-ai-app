@@ -88,7 +88,7 @@ describe('Ingestion Helpers Smoke Tests', () => {
 
   describe('fetchAdapterDataExecute', () => {
     it('should handle missing adapter gracefully', async () => {
-      const result = await fetchAdapterDataExecute({ sourceSlug: 'nonexistent' });
+      const result = await fetchAdapterDataExecute({ adapterName: 'nonexistent' });
       
       expect(result).toHaveProperty('success');
       expect(result).toHaveProperty('items');

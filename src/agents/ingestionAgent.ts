@@ -26,15 +26,29 @@ import {
   fetchURLContentExecute,
   extractMainContentExecute,
   createEmbeddingExecute,
-  createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute
 } from './tools/ingestion-helpers';
 import { loadEnvironmentConfig } from '../config/environment';
 import { logger } from '../utils/logger';
+import { createClient } from '@supabase/supabase-js';
 
 // Types
 import type { ParsedItem } from '../types/adapter';
+
+// Add interface for enriched items
+interface EnrichedItem extends ParsedItem {
+  fullContent: string;
+  embeddingText: string;
+}
+
+// Add interface for source data with proper typing
+interface SourceData {
+  id: number;
+  slug: string;
+  name: string;
+  adapter_name: string;
+}
 
 interface StoryRecord {
   external_id: string;
@@ -56,6 +70,7 @@ interface IngestionStats {
   sourcesProcessed: number;
   startTime: number;
   endTime?: number;
+  skippedItems: number;
 }
 
 /**
@@ -120,8 +135,8 @@ async function processItemsBatch(
   try {
     return await pRetry(async () => {
       // Step 1: Fetch and extract content ONLY for items lacking sufficient content
-      const itemsWithContent = await Promise.all(
-        items.map(async (item) => {
+      const itemsWithContent: EnrichedItem[] = await Promise.all(
+        items.map(async (item): Promise<EnrichedItem> => {
           let fullContent = item.content || '';
           let extractedTitle = item.title;
           
@@ -131,6 +146,7 @@ async function processItemsBatch(
           if (needsContentEnrichment && item.url?.trim()) {
             logger.debug(`Enriching content for item with insufficient content: ${item.title} (current: ${fullContent.length} chars)`);
             
+            let contentEnriched = false;
             const contentResult = await fetchURLContentExecute({ url: item.url });
             
             if (contentResult.success && contentResult.html) {
@@ -142,12 +158,22 @@ async function processItemsBatch(
               if (extractResult.success && extractResult.content) {
                 const originalLength = fullContent.length;
                 fullContent = extractResult.content;
+                contentEnriched = true;
                 logger.debug(`Enriched content from ${originalLength} to ${extractResult.content.length} chars`);
                 
                 // Use extracted title if original is missing or very short
                 if ((!extractedTitle || extractedTitle.length < 10) && extractResult.title) {
                   extractedTitle = extractResult.title;
                 }
+              }
+            }
+            
+            // If direct content extraction failed, try fallback to original metadata
+            if (!contentEnriched && item.original_metadata) {
+              const fallbackContent = getFallbackContentFromMetadata(item.original_metadata);
+              if (fallbackContent && fallbackContent.length > 50) { // Only use if substantial
+                fullContent = fallbackContent;
+                logger.debug(`Using fallback content from metadata: ${fallbackContent.length} chars`);
               }
             }
           } else if (fullContent) {
@@ -176,6 +202,11 @@ async function processItemsBatch(
         throw new Error(embeddingResult.error || 'Failed to generate embeddings');
       }
 
+      // Validate embedding array length matches items length for data safety
+      if (embeddingResult.embeddings.length !== itemsWithContent.length) {
+        throw new Error(`Embedding count mismatch: got ${embeddingResult.embeddings.length}, expected ${itemsWithContent.length}`);
+      }
+
       // Step 3: Build and upsert stories
       const results = await Promise.all(
         itemsWithContent.map(async (item, index) => {
@@ -196,6 +227,7 @@ async function processItemsBatch(
               throw new Error(upsertResult.error || 'Upsert failed');
             }
           } catch (error) {
+            logger.error(`Failed to process item at index ${index}:`, error);
             return { 
               success: false, 
               error: error instanceof Error ? error.message : 'Unknown error' 
@@ -217,87 +249,91 @@ async function processItemsBatch(
 }
 
 /**
- * Process a single item from a source
+ * Extract fallback content from original_metadata when direct content extraction fails
  */
-async function processItem(
-  item: ParsedItem,
-  sourceId: number,
-  retryOptions: any
-): Promise<{ success: boolean; error?: string }> {
+function getFallbackContentFromMetadata(metadata: Record<string, any>): string | null {
+  // Try different fallback content sources in order of preference
+  
+  // For OpenAI adapter - use raw RSS content
+  if (metadata.raw_item) {
+    const rawItem = metadata.raw_item;
+    const rssContent = rawItem.content || rawItem.contentSnippet || rawItem.description;
+    if (rssContent && rssContent.length > 50) {
+      return rssContent;
+    }
+  }
+  
+  // For TLDR adapter - use summary
+  if (metadata.summary && metadata.summary.length > 50) {
+    return metadata.summary;
+  }
+  
+  // For Anthropic adapter - use description
+  if (metadata.anthropic_description && metadata.anthropic_description.length > 50) {
+    return metadata.anthropic_description;
+  }
+  
+  // Generic fallbacks for other adapters
+  if (metadata.description && metadata.description.length > 50) {
+    return metadata.description;
+  }
+  
+  if (metadata.content && metadata.content.length > 50) {
+    return metadata.content;
+  }
+  
+  return null;
+}
+
+/**
+ * Check which items already exist in the database to avoid reprocessing
+ * This saves resources on content fetching and embedding generation
+ */
+async function filterExistingItems(
+  items: ParsedItem[], 
+  sourceId: number
+): Promise<{ newItems: ParsedItem[]; existingCount: number }> {
+  if (items.length === 0) {
+    return { newItems: [], existingCount: 0 };
+  }
+
   try {
-    return await pRetry(async () => {
-      // Step 1: Try to fetch full content ONLY if needed
-      let fullContent = item.content || '';
-      let extractedTitle = item.title;
-      
-      // Only fetch content if we don't have sufficient content already
-      const needsContentEnrichment = !fullContent || fullContent.length < 200;
-      
-      if (needsContentEnrichment && item.url?.trim()) {
-        logger.debug(`Enriching content for item with insufficient content: ${item.title} (current: ${fullContent.length} chars)`);
-        
-        const contentResult = await fetchURLContentExecute({ url: item.url });
-        
-        if (contentResult.success && contentResult.html) {
-          // Extract main content
-          const extractResult = await extractMainContentExecute({ 
-            html: contentResult.html,
-            url: item.url 
-          });
-          
-                        if (extractResult.success && extractResult.content) {
-                const originalLength = fullContent.length;
-                fullContent = extractResult.content;
-                logger.debug(`Enriched content from ${originalLength} to ${extractResult.content.length} chars`);
-            
-            // Use extracted title if original is missing or very short
-            if ((!extractedTitle || extractedTitle.length < 10) && extractResult.title) {
-              extractedTitle = extractResult.title;
-            }
-          }
-        }
-      } else if (fullContent) {
-        logger.debug(`Skipping content enrichment for item with sufficient content: ${item.title} (${fullContent.length} chars)`);
-      } else {
-        logger.warn(`No content available and no URL to fetch from: ${item.title}`);
-      }
-      
-      // Step 2: Generate embedding
-      let embedding: number[] | undefined;
-      if (fullContent) {
-        const embeddingResult = await createSingleEmbeddingExecute({ 
-          text: `${extractedTitle}\n\n${fullContent}`,
-          truncate: true 
-        });
-        
-        if (embeddingResult.success && embeddingResult.embedding) {
-          embedding = embeddingResult.embedding;
-        }
-      }
-      
-      // Step 3: Build and upsert story
-      const story = buildStoryRecord(
-        { ...item, title: extractedTitle },
-        sourceId,
-        fullContent,
-        embedding
-      );
-      
-      const upsertResult = await upsertSupabaseExecute({ story });
-      
-      if (upsertResult.success) {
-        logger.debug(`Successfully ingested: ${story.title}`);
-        return { success: true };
-      } else {
-        throw new Error(upsertResult.error || 'Upsert failed');
-      }
-    }, retryOptions);
+    const config = loadEnvironmentConfig();
+    const supabase = createClient(config.supabase.url, config.supabase.key);
+    
+    // Get list of external_ids that already exist for this source
+    const externalIds = items.map(item => item.external_id);
+    
+    const { data: existingStories, error } = await supabase
+      .from('stories')
+      .select('external_id')
+      .eq('source_id', sourceId)
+      .in('external_id', externalIds);
+    
+    if (error) {
+      logger.warn(`Failed to check existing stories for source ${sourceId}:`, error);
+      // If check fails, proceed with all items to avoid data loss
+      return { newItems: items, existingCount: 0 };
+    }
+    
+    // Create set of existing external_ids for efficient lookup
+    const existingExternalIds = new Set(
+      existingStories?.map(story => story.external_id) || []
+    );
+    
+    // Filter out items that already exist
+    const newItems = items.filter(item => !existingExternalIds.has(item.external_id));
+    const existingCount = items.length - newItems.length;
+    
+    if (existingCount > 0) {
+      logger.info(`Filtered out ${existingCount} existing items, processing ${newItems.length} new items for source ${sourceId}`);
+    }
+    
+    return { newItems, existingCount };
   } catch (error) {
-    logger.error(`Failed to ingest item ${item.url}:`, error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
-    };
+    logger.error(`Error checking existing items for source ${sourceId}:`, error);
+    // If check fails, proceed with all items to avoid data loss
+    return { newItems: items, existingCount: 0 };
   }
 }
 
@@ -321,7 +357,8 @@ export async function runIngestion() {
     successfulIngests: 0,
     failedIngests: 0,
     sourcesProcessed: 0,
-    startTime: Date.now()
+    startTime: Date.now(),
+    skippedItems: 0
   };
   
   try {
@@ -348,7 +385,7 @@ export async function runIngestion() {
       }
       acc[source.adapter_name].push(source);
       return acc;
-    }, {} as Record<string, Array<{ id: any; slug: any; name: any; adapter_name: any }>>);
+    }, {} as Record<string, SourceData[]>);
 
     // Create source slug to ID mapping for efficient lookups
     const sourceSlugToId = new Map<string, number>();
@@ -370,7 +407,7 @@ export async function runIngestion() {
         
         if (!adapterResult.success || !adapterResult.items) {
           logger.error(`Failed to fetch data from ${adapterName} adapter: ${adapterResult.error}`);
-          stats.failedIngests++;
+          // Don't increment failedIngests here - no items were processed
           continue;
         }
         
@@ -395,11 +432,15 @@ export async function runIngestion() {
             continue;
           }
 
+          // Filter out existing items for this source
+          const { newItems, existingCount } = await filterExistingItems(sourceItems, sourceId);
+          stats.skippedItems += existingCount;
+
           // Process items in batches for more efficient embedding generation
           const batchSize = config.ingestion.batchSize || 10;
           const batches = [];
-          for (let i = 0; i < sourceItems.length; i += batchSize) {
-            batches.push(sourceItems.slice(i, i + batchSize));
+          for (let i = 0; i < newItems.length; i += batchSize) {
+            batches.push(newItems.slice(i, i + batchSize));
           }
           
           const results = await Promise.all(
@@ -417,6 +458,11 @@ export async function runIngestion() {
               stats.failedIngests++;
             }
           });
+          
+          // Add skipped items to stats for visibility
+          if (existingCount > 0) {
+            logger.info(`Skipped ${existingCount} existing items for source ${sourceSlug}`);
+          }
         }
         
         stats.sourcesProcessed += sources.length;

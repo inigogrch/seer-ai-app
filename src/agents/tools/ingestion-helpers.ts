@@ -359,10 +359,13 @@ export const createEmbeddingExecute = async ({ texts, truncate }: { texts: strin
       throw new Error('No texts provided for embedding');
     }
 
-    // Truncate texts if they're too long (max ~8000 tokens, roughly 32000 chars)
-    const maxChars = 32000;
+    // MUCH more aggressive truncation - OpenAI embedding model has 8K token limit
+    // 1 token ≈ 4 characters, but being extra conservative due to token density
+    // Using 10K chars max to ensure we stay well under 8K tokens
+    const maxChars = 10000; // Ultra-conservative limit to guarantee under 8K tokens
     const processedTexts = texts.map(text => {
       if (truncate && text.length > maxChars) {
+        console.log(`Truncating text from ${text.length} to ${maxChars} chars to stay under token limit`);
         return text.substring(0, maxChars) + '...';
       }
       return text;
@@ -465,11 +468,15 @@ export const createEmbeddingExecute = async ({ texts, truncate }: { texts: strin
 // Convenience function for single text embedding
 export const createSingleEmbeddingExecute = async ({ text, truncate }: { text: string; truncate: boolean }) => {
   try {
-    // Truncate text if needed
-    const maxChars = 32000;
+    // Ultra-conservative truncation to stay under token limits
+    const maxChars = 10000; // Ultra-conservative limit for 8K token model
     const processedText = truncate && text.length > maxChars 
       ? text.substring(0, maxChars) + '...' 
       : text;
+    
+    if (truncate && text.length > maxChars) {
+      console.log(`Single embedding: Truncating text from ${text.length} to ${maxChars} chars`);
+    }
     
     // Check cache first
     if (getConfig().cache.enabled) {
@@ -561,10 +568,7 @@ export const upsertSupabaseExecute = async ({ story }: {
     
     const { data, error } = await supabase
       .from(getConfig().ingestion.storiesTable)
-      .upsert(storyData, {
-        onConflict: 'external_id,source_id',
-        ignoreDuplicates: false // Update if exists
-      })
+      .upsert(storyData)  // Supabase auto-detects unique constraints
       .select()
       .single();
     
