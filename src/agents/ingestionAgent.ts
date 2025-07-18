@@ -24,6 +24,7 @@ import {
   fetchURLContentExecute,
   extractMainContentExecute,
   createEmbeddingExecute,
+  createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute
 } from './tools/ingestionTools';
@@ -45,12 +46,12 @@ interface StoryRecord {
   source_id: number;
   title: string;
   url: string;
-  author?: string;
-  published_at?: string;
-  summary?: string;
-  content?: string;
-  embedding?: number[];
-  metadata?: Record<string, any>;
+  author: string | null;
+  published_at: string | null;
+  summary: string | null;
+  content: string | null;
+  embedding: number[] | null;
+  metadata: Record<string, any> | null;
 }
 
 interface IngestionStats {
@@ -79,12 +80,12 @@ function buildStoryRecord(
     source_id: sourceId,
     title: item.title,
     url: item.url,
-    author: item.author,
-    published_at: item.published_at,
-    summary: item.summary,
-    content: content || item.summary || '',
-    embedding,
-    metadata: item.metadata || {}
+    author: item.author || null,
+    published_at: item.published_at || null,
+    summary: item.summary || null,
+    content: content || item.summary || null,
+    embedding: embedding || null,
+    metadata: item.metadata || null
   };
 }
 
@@ -113,6 +114,102 @@ Report progress and statistics after completion.`,
     upsertSupabase
   ]
 });
+
+/**
+ * Process multiple items in batch for more efficient embedding generation
+ */
+async function processItemsBatch(
+  items: ParsedItem[],
+  sourceId: number,
+  retryOptions: any
+): Promise<{ success: boolean; error?: string }[]> {
+  if (!items.length) return [];
+
+  try {
+    return await pRetry(async () => {
+      // Step 1: Fetch and extract content for all items
+      const itemsWithContent = await Promise.all(
+        items.map(async (item) => {
+          let fullContent = item.summary || '';
+          let extractedTitle = item.title;
+          
+          if (item.url) {
+            const contentResult = await fetchURLContentExecute({ url: item.url });
+            
+            if (contentResult.success && contentResult.html) {
+              const extractResult = await extractMainContentExecute({ 
+                html: contentResult.html,
+                url: item.url 
+              });
+              
+              if (extractResult.success && extractResult.content) {
+                fullContent = extractResult.content;
+                if (!extractedTitle && extractResult.title) {
+                  extractedTitle = extractResult.title;
+                }
+              }
+            }
+          }
+          
+          return {
+            ...item,
+            title: extractedTitle,
+            fullContent,
+            embeddingText: `${extractedTitle}\n\n${fullContent}`
+          };
+        })
+      );
+
+      // Step 2: Generate embeddings in batch
+      const textsForEmbedding = itemsWithContent.map(item => item.embeddingText);
+      const embeddingResult = await createEmbeddingExecute({ 
+        texts: textsForEmbedding,
+        truncate: true 
+      });
+
+      if (!embeddingResult.success || !embeddingResult.embeddings) {
+        throw new Error(embeddingResult.error || 'Failed to generate embeddings');
+      }
+
+      // Step 3: Build and upsert stories
+      const results = await Promise.all(
+        itemsWithContent.map(async (item, index) => {
+          try {
+            const story = buildStoryRecord(
+              item,
+              sourceId,
+              item.fullContent,
+              embeddingResult.embeddings![index]
+            );
+            
+            const upsertResult = await upsertSupabaseExecute({ story });
+            
+            if (upsertResult.success) {
+              logger.debug(`Successfully ingested: ${story.title}`);
+              return { success: true };
+            } else {
+              throw new Error(upsertResult.error || 'Upsert failed');
+            }
+          } catch (error) {
+            return { 
+              success: false, 
+              error: error instanceof Error ? error.message : 'Unknown error' 
+            };
+          }
+        })
+      );
+
+      return results;
+    }, retryOptions);
+  } catch (error) {
+    logger.error('Failed to process items batch:', error);
+    // Return failure for all items
+    return items.map(() => ({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    }));
+  }
+}
 
 /**
  * Process a single item from a source
@@ -151,7 +248,7 @@ async function processItem(
       // Step 2: Generate embedding
       let embedding: number[] | undefined;
       if (fullContent) {
-        const embeddingResult = await createEmbeddingExecute({ 
+        const embeddingResult = await createSingleEmbeddingExecute({ 
           text: `${extractedTitle}\n\n${fullContent}`,
           truncate: true 
         });
@@ -247,15 +344,24 @@ export async function runIngestion() {
         stats.totalItems += items.length;
         logger.info(`Fetched ${items.length} items from ${source.slug}`);
         
-        // Process items with concurrency control
+        // Process items in batches for more efficient embedding generation
+        // This reduces OpenAI API calls from N (one per item) to N/batchSize
+        // Batch size of 10 balances efficiency with error isolation and rate limits
+        const batchSize = config.ingestion.batchSize || 10;
+        const batches = [];
+        for (let i = 0; i < items.length; i += batchSize) {
+          batches.push(items.slice(i, i + batchSize));
+        }
+        
         const results = await Promise.all(
-          items.map(item => 
-            limit(() => processItem(item, source.id, retryOptions))
+          batches.map(batch => 
+            limit(() => processItemsBatch(batch, source.id, retryOptions))
           )
         );
         
-        // Count successes and failures
-        results.forEach(result => {
+        // Flatten results and count successes and failures
+        const flatResults = results.flat();
+        flatResults.forEach(result => {
           if (result.success) {
             stats.successfulIngests++;
           } else {

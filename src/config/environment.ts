@@ -15,6 +15,13 @@ export interface EnvironmentConfig {
     concurrencyLimit: number;
     feedSourcesTable: string;
     storiesTable: string;
+    batchSize: number;
+  };
+  cache: {
+    enabled: boolean;
+    ttlDays: number;
+    cacheTable: string;
+    metricsTable: string;
   };
   logging: {
     level: string;
@@ -49,7 +56,14 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     ingestion: {
       concurrencyLimit: parseInt(process.env.CONCURRENCY_LIMIT || '4', 10),
       feedSourcesTable: process.env.FEED_SOURCES_TABLE || 'sources',
-      storiesTable: process.env.STORIES_TABLE || 'stories'
+      storiesTable: process.env.STORIES_TABLE || 'stories',
+      batchSize: parseInt(process.env.EMBEDDING_BATCH_SIZE || '10', 10)
+    },
+    cache: {
+      enabled: process.env.EMBEDDING_CACHE_ENABLED !== 'false', // Default to enabled
+      ttlDays: parseInt(process.env.EMBEDDING_CACHE_TTL_DAYS || '30', 10),
+      cacheTable: process.env.EMBEDDING_CACHE_TABLE || 'embedding_cache',
+      metricsTable: process.env.EMBEDDING_CACHE_METRICS_TABLE || 'embedding_cache_metrics'
     },
     logging: {
       level: process.env.LOG_LEVEL || 'info'

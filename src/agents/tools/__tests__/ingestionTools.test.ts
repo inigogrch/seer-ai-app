@@ -2,70 +2,77 @@
  * Unit tests for IngestionAgent tools
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { 
   fetchAdapterDataExecute, 
   fetchURLContentExecute, 
   extractMainContentExecute, 
   createEmbeddingExecute, 
+  createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute 
 } from '../ingestionTools';
+import { openai } from '../../../utils/openaiClient';
+import { createMockSupabaseClient, createMockOpenAIResponse } from '../../../__tests__/setup';
 
 // Mock external dependencies
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          order: vi.fn(() => Promise.resolve({ 
-            data: [{ id: 1, slug: 'test', name: 'Test Source', adapter_name: 'test' }], 
-            error: null 
-          }))
-        }))
-      })),
-      upsert: vi.fn(() => ({
-        select: vi.fn(() => ({
-          single: vi.fn(() => Promise.resolve({ 
-            data: { id: 1, title: 'Test Story' }, 
-            error: null 
-          }))
-        }))
-      }))
-    }))
-  }))
+jest.mock('../../../config/environment', () => ({
+  loadEnvironmentConfig: () => ({
+    openai: { apiKey: 'test-key' },
+    supabase: { url: 'test-url', key: 'test-key' },
+    ingestion: {
+      concurrencyLimit: 4,
+      feedSourcesTable: 'sources',
+      storiesTable: 'stories',
+      batchSize: 10
+    },
+    cache: {
+      enabled: false,
+      ttlDays: 30,
+      cacheTable: 'embedding_cache',
+      metricsTable: 'embedding_cache_metrics'
+    },
+    logging: { level: 'info' }
+  })
 }));
 
-vi.mock('../../../utils/openaiClient', () => ({
-  openai: {
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: jest.fn(() => createMockSupabaseClient())
+}));
+
+jest.mock('../../../utils/openaiClient', () => {
+  const mockOpenAI = {
     embeddings: {
-      create: vi.fn(() => Promise.resolve({
-        data: [{ embedding: new Array(1536).fill(0.1) }],
-        usage: { prompt_tokens: 10, total_tokens: 20 }
-      }))
+      create: jest.fn(() => Promise.resolve(createMockOpenAIResponse([
+        new Array(1536).fill(0.1),
+        new Array(1536).fill(0.2)
+      ])))
     }
+  };
+  return { openai: mockOpenAI };
+});
+
+// Mock dynamic imports for adapters - use module factory
+const mockFetchAndParse = jest.fn(() => Promise.resolve([
+  {
+    external_id: 'test-123',
+    source_slug: 'test',
+    title: 'Test Article',
+    url: 'https://example.com/article',
+    content: '',
+    published_at: '2024-01-01T00:00:00Z',
+    author: 'Test Author',
+    original_metadata: { source: 'test' }
   }
-}));
+]));
 
-// Mock dynamic imports for adapters
-vi.mock('../../../adapters/test', () => ({
-  fetchAndParse: vi.fn(() => Promise.resolve([
-    {
-      title: 'Test Article',
-      url: 'https://example.com/article',
-      author: 'Test Author',
-      published_at: '2024-01-01T00:00:00Z',
-      summary: 'Test summary'
-    }
-  ]))
+// Mock the problematic @openai/agents import
+jest.mock('@openai/agents', () => ({
+  tool: jest.fn((config) => config)
 }));
-
-// Mock fetch
-global.fetch = vi.fn();
 
 describe('IngestionTools', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   describe('fetchActiveSourceSlugs', () => {
@@ -85,6 +92,8 @@ describe('IngestionTools', () => {
       expect(result.success).toBe(true);
       expect(result.items).toHaveLength(1);
       expect(result.items[0].title).toBe('Test Article');
+      expect(result.items[0].source_slug).toBe('test');
+      expect(result.adapterName).toBe('test');
     });
 
     it('should handle adapter errors gracefully', async () => {
@@ -151,7 +160,7 @@ describe('IngestionTools', () => {
         </html>
       `;
 
-      const result = await extractMainContentExecute({ html });
+      const result = await extractMainContentExecute({ html, url: 'https://example.com/article' });
       
       expect(result.success).toBe(true);
       expect(result.content).toBeDefined();
@@ -159,7 +168,7 @@ describe('IngestionTools', () => {
     });
 
     it('should handle parsing errors', async () => {
-      const result = await extractMainContentExecute({ html: 'invalid html' });
+      const result = await extractMainContentExecute({ html: 'invalid html', url: null });
       
       // Readability might still parse invalid HTML, so we check for basic structure
       expect(result).toHaveProperty('success');
@@ -168,28 +177,106 @@ describe('IngestionTools', () => {
   });
 
   describe('createEmbedding', () => {
-    it('should generate embeddings successfully', async () => {
-      const result = await createEmbeddingExecute({ 
-        text: 'Test content for embedding',
-        truncate: true 
+    describe('batch embeddings', () => {
+      it('should generate embeddings for multiple texts successfully', async () => {
+        const result = await createEmbeddingExecute({ 
+          texts: ['First text for embedding', 'Second text for embedding'],
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(true);
+        expect(result.embeddings).toHaveLength(2);
+        expect(result.count).toBe(2);
+        expect(result.dimensions).toBe(1536);
+        expect(result.usage).toBeDefined();
+        result.embeddings?.forEach(embedding => {
+          expect(embedding).toHaveLength(1536);
+        });
       });
-      
-      expect(result.success).toBe(true);
-      expect(result.embedding).toHaveLength(1536);
-      expect(result.dimensions).toBe(1536);
-      expect(result.usage).toBeDefined();
+
+      it('should handle empty texts array', async () => {
+        const result = await createEmbeddingExecute({ 
+          texts: [],
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No texts provided');
+      });
+
+      it('should truncate long texts in batch', async () => {
+        const longText1 = 'a'.repeat(35000); // Longer than maxChars
+        const longText2 = 'b'.repeat(35000);
+        
+        const result = await createEmbeddingExecute({ 
+          texts: [longText1, longText2],
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(true);
+        expect(result.embeddings).toHaveLength(2);
+        result.embeddings?.forEach(embedding => {
+          expect(embedding).toHaveLength(1536);
+        });
+      });
+
+             it('should maintain order of embeddings', async () => {
+        const texts = ['First text', 'Second text', 'Third text'];
+        
+        const result = await createEmbeddingExecute({ 
+          texts,
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(true);
+        expect(result.embeddings).toHaveLength(3);
+        expect(result.count).toBe(3);
+        // All embeddings should be different (different texts)
+        expect(result.embeddings?.[0]).not.toEqual(result.embeddings?.[1]);
+      });
+
+             it('should reduce API calls compared to individual requests', async () => {
+        const createMock = jest.mocked(openai.embeddings.create);
+        createMock.mockClear();
+        
+        const texts = ['Text 1', 'Text 2', 'Text 3', 'Text 4', 'Text 5'];
+        
+        // Single batch call
+        await createEmbeddingExecute({ texts, truncate: true });
+        
+        // Should only be called once for the entire batch
+        expect(createMock).toHaveBeenCalledTimes(1);
+        expect(createMock).toHaveBeenCalledWith({
+          model: 'text-embedding-3-small',
+          input: texts
+        });
+      });
     });
 
-    it('should truncate long text', async () => {
-      const longText = 'a'.repeat(35000); // Longer than maxChars
-      
-      const result = await createEmbeddingExecute({ 
-        text: longText,
-        truncate: true 
+    describe('single embedding convenience function', () => {
+      it('should generate single embedding successfully', async () => {
+        const result = await createSingleEmbeddingExecute({ 
+          text: 'Test content for embedding',
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(true);
+        expect(result.embedding).toHaveLength(1536);
+        expect(result.dimensions).toBe(1536);
+        expect(result.usage).toBeDefined();
       });
-      
-      expect(result.success).toBe(true);
-      expect(result.embedding).toHaveLength(1536);
+
+      it('should truncate long text', async () => {
+        const longText = 'a'.repeat(35000); // Longer than maxChars
+        
+        const result = await createSingleEmbeddingExecute({ 
+          text: longText,
+          truncate: true 
+        });
+        
+        expect(result.success).toBe(true);
+        expect(result.embedding).toHaveLength(1536);
+      });
     });
   });
 
@@ -200,8 +287,12 @@ describe('IngestionTools', () => {
         source_id: 1,
         title: 'Test Story',
         url: 'https://example.com/story',
+        author: 'Test Author',
+        published_at: '2024-01-01T00:00:00Z',
+        summary: 'Test summary',
         content: 'Test content',
-        embedding: new Array(1536).fill(0.1)
+        embedding: new Array(1536).fill(0.1),
+        metadata: { source: 'test' }
       };
 
       const result = await upsertSupabaseExecute({ story });

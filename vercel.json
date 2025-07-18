@@ -9,6 +9,7 @@
     "OPENAI_API_KEY": "@openai-api-key",
     "SUPABASE_URL": "@supabase-url",
     "SUPABASE_KEY": "@supabase-key",
-    "CRON_SECRET": "@cron-secret"
+    "CRON_SECRET": "@cron-secret",
+    "EMBEDDING_BATCH_SIZE": "10"
   }
 } 

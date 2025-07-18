@@ -6,7 +6,7 @@ CREATE OR REPLACE FUNCTION search_stories_by_similarity(
     match_threshold float DEFAULT 0.7,
     match_count int DEFAULT 10,
     category_filter text DEFAULT NULL,
-    source_filter uuid DEFAULT NULL
+    source_filter integer DEFAULT NULL
 )
 RETURNS TABLE (
     id uuid,
@@ -19,7 +19,7 @@ RETURNS TABLE (
     published_at timestamp with time zone,
     story_category text,
     tags text[],
-    source_id uuid,
+    source_id integer,
     similarity float
 )
 LANGUAGE plpgsql

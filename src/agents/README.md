@@ -71,9 +71,16 @@ SUPABASE_KEY=your-key
 CONCURRENCY_LIMIT=4
 FEED_SOURCES_TABLE=sources
 STORIES_TABLE=stories
+EMBEDDING_BATCH_SIZE=10
 LOG_LEVEL=info
 CRON_SECRET=your-secret
 ```
+
+## Performance Optimizations
+
+- **Batch Embedding Generation**: Items are processed in batches (default: 10) to reduce OpenAI API calls from N (one per item) to N/batchSize
+- **Concurrent Processing**: Multiple batches can be processed concurrently (respecting rate limits)
+- **Efficient Content Extraction**: HTML parsing and content extraction is done in parallel
 
 ## Error Handling
 
@@ -81,6 +88,7 @@ CRON_SECRET=your-secret
 - **Concurrency Control**: Limited to 4 parallel operations by default
 - **Timeout Protection**: HTTP requests timeout after 10 seconds
 - **Graceful Degradation**: If full content fetch fails, falls back to summary
+- **Batch Error Isolation**: If a batch fails, only that batch is retried, not individual items
 
 ## Testing
 
