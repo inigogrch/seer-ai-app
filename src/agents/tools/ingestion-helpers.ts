@@ -232,15 +232,15 @@ export const fetchAdapterDataExecute = async ({ adapterName }: { adapterName: st
     }
     
     // Dynamically import the adapter module
-    const adapter = await import(`../../adapters/${adapterName}.js`);
+    const adapter = await import(`../../adapters/${adapterName}`);
     
     if (!adapter.fetchAndParse) {
       throw new Error(`Adapter ${adapterName} does not have fetchAndParse method`);
     }
     
-    // Call adapter with no parameters to get all its sources
-    // All adapters support this: aws(), arxiv(), anthropic(), etc.
-    const items = await adapter.fetchAndParse();
+    // Pass active source slugs to the adapter - it will handle internal conversion
+    const sourceSlugs = sources.map(s => s.slug);
+    const items = await adapter.fetchAndParse(sourceSlugs);
     
     // Validate that returned items have source_slug that matches our database
     const validSourceSlugs = new Set(sources.map(s => s.slug));

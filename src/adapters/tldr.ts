@@ -1,5 +1,6 @@
 import Parser from 'rss-parser';
 import { ParsedItem } from '../types/adapter';
+import { createHash } from 'crypto';
 
 const RSS_URL = 'https://tldr.tech/api/rss/tech';
 
@@ -175,13 +176,21 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
     
     // Convert to ParsedItem format
     const items: ParsedItem[] = allStories.map((story, index) => {
-      // Create unique external ID using URL hash or fallback
-      const urlHash = story.url ? 
-        `${story.url.split('/').pop()?.split('?')[0] || 'story'}-${index}` : 
-        `story-${Date.now()}-${index}`;
+      // Create deterministic external ID based on URL, not array index
+      let externalId: string;
+      if (story.url) {
+        // Create a hash of the URL for deterministic, unique IDs
+        const urlHash = createHash('md5').update(story.url).digest('hex').substring(0, 8);
+        const urlSlug = story.url.split('/').pop()?.split('?')[0] || 'story';
+        externalId = `tldr-${urlSlug}-${urlHash}`;
+      } else {
+        // Fallback for stories without URLs (rare)
+        const titleHash = createHash('md5').update(story.title + story.publishedAt.toISOString()).digest('hex').substring(0, 8);
+        externalId = `tldr-notitle-${titleHash}`;
+      }
       
       return {
-        external_id: `tldr-${urlHash}`,
+        external_id: externalId,
         source_slug: 'tldr_tech', // Single feed adapter
         title: story.title,
         url: story.url,

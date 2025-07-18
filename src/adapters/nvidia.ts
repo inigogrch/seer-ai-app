@@ -1,40 +1,41 @@
 import Parser from 'rss-parser';
 import { ParsedItem } from '../types/adapter';
 
-// @cursor TASK: Implement Microsoft blogs adapter for unified RSS feed handling
+// @cursor TASK: Implement NVIDIA Developer Blog adapter for Atom feed handling
 
-interface RSSItem {
+interface AtomItem {
   title?: string;
   link?: string;
-  pubDate?: string;
+  published?: string;
+  updated?: string;
+  id?: string;
   guid?: string;
+  author?: string;
   creator?: string;
   'dc:creator'?: string;
-  'dc:date'?: string;
-  description?: string;
+  summary?: string;
   content?: string;
-  contentSnippet?: string;
+  'content:encoded'?: string;
+  contentEncoded?: string;
   categories?: string[];
   category?: string | string[];
 }
 
-// Microsoft blog feed configuration
-const MICROSOFT_FEEDS = {
-  'microsoft-365-insider': 'https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=Microsoft365InsiderBlog',
-  'microsoft-excel': 'https://techcommunity.microsoft.com/t5/s/gxcuf89792/rss/board?board.id=ExcelBlog',
+// NVIDIA blog feed configuration
+const NVIDIA_FEEDS = {
+  'nvidia-developer': 'https://developer.nvidia.com/blog/feed',
 } as const;
 
 // Mapping from database slugs (underscores) to internal feed keys (hyphens)
 const SLUG_MAPPING: Record<string, string> = {
   // Database format → Internal format
-  'microsoft365_insider': 'microsoft-365-insider',
-  'excel_blog': 'microsoft-excel',
+  'nvidia_developer': 'nvidia-developer',
 };
 
 // Convert database slug to internal feed key
 function mapSlugToFeedKey(slug: string): string {
   // If it's already in internal format, return as-is
-  if (MICROSOFT_FEEDS.hasOwnProperty(slug)) {
+  if (NVIDIA_FEEDS.hasOwnProperty(slug)) {
     return slug;
   }
   
@@ -46,7 +47,7 @@ function mapSlugToFeedKey(slug: string): string {
   
   // Fallback: try converting underscores to hyphens
   const fallback = slug.replace(/_/g, '-');
-  if (MICROSOFT_FEEDS.hasOwnProperty(fallback)) {
+  if (NVIDIA_FEEDS.hasOwnProperty(fallback)) {
     return fallback;
   }
   
@@ -54,12 +55,12 @@ function mapSlugToFeedKey(slug: string): string {
   return slug;
 }
 
-function normalizeContent(item: RSSItem): string {
-  // Microsoft feeds use content field for main content, fallback to description
-  const contentField = item.content || item.description;
-  if (contentField) {
+function normalizeContent(item: AtomItem): string {
+  // For Atom feeds, prioritize content over summary
+  const fullContent = item.content || item['content:encoded'] || item.contentEncoded;
+  if (fullContent) {
     // Strip HTML tags while preserving text structure
-    return contentField
+    return fullContent
       .replace(/<[^>]*>/g, ' ')  // Remove HTML tags
       .replace(/&nbsp;/g, ' ')   // Replace non-breaking spaces
       .replace(/&amp;/g, '&')    // Replace HTML entities
@@ -71,14 +72,15 @@ function normalizeContent(item: RSSItem): string {
       .trim();
   }
   
-  return '';
+  // Fallback to summary if no full content
+  return item.summary?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || '';
 }
 
-function normalizeAuthor(item: RSSItem): string | undefined {
-  return item['dc:creator'] || item.creator || undefined;
+function normalizeAuthor(item: AtomItem): string | undefined {
+  return item.author || item['dc:creator'] || item.creator || undefined;
 }
 
-function normalizeCategories(item: RSSItem): string[] {
+function normalizeCategories(item: AtomItem): string[] {
   const categories: string[] = [];
   
   if (item.categories) {
@@ -96,12 +98,12 @@ function normalizeCategories(item: RSSItem): string[] {
   return categories;
 }
 
-function extractImageUrl(item: RSSItem): string | undefined {
-  // Microsoft feeds typically include images in content
-  const contentField = item.content || item.description || '';
+function extractImageUrl(item: AtomItem): string | undefined {
+  // NVIDIA blog posts typically include images in content
+  const content = item.content || item['content:encoded'] || item.contentEncoded || '';
   
   // Look for first image in content
-  const imgMatch = contentField.match(/<img[^>]+src="([^"]+)"/i);
+  const imgMatch = content.match(/<img[^>]+src="([^"]+)"/i);
   if (imgMatch) {
     return imgMatch[1];
   }
@@ -109,8 +111,31 @@ function extractImageUrl(item: RSSItem): string | undefined {
   return undefined;
 }
 
-function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem | null {
-  if (!item.title || !item.link) {
+function extractUrl(item: AtomItem): string | undefined {
+  // Handle both RSS-style link and Atom-style link
+  if (typeof item.link === 'string') {
+    return item.link;
+  }
+  
+  // For Atom feeds, link might be an object or array
+  if (item.link && typeof item.link === 'object') {
+    const linkObj = item.link as any;
+    if (linkObj.href) {
+      return linkObj.href;
+    }
+    if (Array.isArray(linkObj) && linkObj[0]?.href) {
+      return linkObj[0].href;
+    }
+  }
+  
+  return undefined;
+}
+
+function validateAndNormalizeItem(item: AtomItem, sourceSlug: string): ParsedItem | null {
+  const url = extractUrl(item);
+  const externalId = item.id || item.guid;
+  
+  if (!item.title || !url || !externalId) {
     return null;
   }
 
@@ -119,28 +144,23 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
     return null;
   }
 
-  // Use dc:date if available, otherwise pubDate
-  const dateString = item['dc:date'] || item.pubDate;
-  const publishedAt = dateString ? new Date(dateString).toISOString() : new Date().toISOString();
-  
-  // Use guid if available, otherwise use link as external_id
-  const externalId = item.guid || item.link;
+  // Use published date for Atom, fallback to updated
+  const publishedAt = item.published ? new Date(item.published).toISOString() : 
+                     item.updated ? new Date(item.updated).toISOString() : 
+                     new Date().toISOString();
   
   return {
     external_id: externalId,
-          source_slug: sourceSlug, // Already correct - uses the feed key
+    source_slug: sourceSlug,
     title: item.title.trim(),
-    url: item.link,
+    url,
     content,
     published_at: publishedAt,
     author: normalizeAuthor(item),
     image_url: extractImageUrl(item),
     original_metadata: {
       categories: normalizeCategories(item),
-      description: item.description,
-      content: item.content,
-      contentSnippet: item.contentSnippet,
-      dc_date: item['dc:date'],
+      summary: item.summary,
       raw_item: item
     }
   };
@@ -154,7 +174,7 @@ async function fetchSingleFeed(sourceSlug: string, feedUrl: string): Promise<Par
     const items: ParsedItem[] = [];
     
     for (const item of feed.items || []) {
-      const normalizedItem = validateAndNormalizeItem(item as RSSItem, sourceSlug);
+      const normalizedItem = validateAndNormalizeItem(item as AtomItem, sourceSlug);
       if (normalizedItem) {
         items.push(normalizedItem);
       }
@@ -162,22 +182,22 @@ async function fetchSingleFeed(sourceSlug: string, feedUrl: string): Promise<Par
     
     return items;
   } catch (error) {
-    console.error(`Error fetching Microsoft feed ${sourceSlug}:`, error);
+    console.error(`Error fetching NVIDIA feed ${sourceSlug}:`, error);
     return [];
   }
 }
 
 export async function fetchAndParse(feedSlugs?: string[]): Promise<ParsedItem[]> {
-  const slugsToProcess = feedSlugs || Object.keys(MICROSOFT_FEEDS);
+  const slugsToProcess = feedSlugs || Object.keys(NVIDIA_FEEDS);
   const allItems: ParsedItem[] = [];
   
-  // Process feeds in parallel
+  // Process feeds in parallel (though only one feed currently)
   const feedPromises = slugsToProcess.map(async (originalSlug) => {
     const feedKey = mapSlugToFeedKey(originalSlug);
-    const feedUrl = MICROSOFT_FEEDS[feedKey as keyof typeof MICROSOFT_FEEDS];
+    const feedUrl = NVIDIA_FEEDS[feedKey as keyof typeof NVIDIA_FEEDS];
     
     if (!feedUrl) {
-      console.warn(`Unknown Microsoft feed slug: ${originalSlug} (mapped to: ${feedKey})`);
+      console.warn(`Unknown NVIDIA feed slug: ${originalSlug} (mapped to: ${feedKey})`);
       return [];
     }
     
@@ -201,19 +221,15 @@ export async function fetchAndParse(feedSlugs?: string[]): Promise<ParsedItem[]>
   return allItems;
 }
 
-// Individual feed functions for backward compatibility
-export async function fetchMicrosoft365Insider(): Promise<ParsedItem[]> {
-  return fetchSingleFeed('microsoft-365-insider', MICROSOFT_FEEDS['microsoft-365-insider']);
+// Individual feed function for backward compatibility
+export async function fetchNVIDIADeveloper(): Promise<ParsedItem[]> {
+  return fetchSingleFeed('nvidia-developer', NVIDIA_FEEDS['nvidia-developer']);
 }
 
-export async function fetchMicrosoftExcel(): Promise<ParsedItem[]> {
-  return fetchSingleFeed('microsoft-excel', MICROSOFT_FEEDS['microsoft-excel']);
-}
-
-export const microsoftAdapter = {
-  name: 'Microsoft Blogs',
+export const nvidiaAdapter = {
+  name: 'NVIDIA Developer Blog',
   fetchAndParse,
-  supportedSources: Object.keys(MICROSOFT_FEEDS)
+  supportedSources: Object.keys(NVIDIA_FEEDS)
 };
 
-export default microsoftAdapter; 
+export default nvidiaAdapter; 
