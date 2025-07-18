@@ -6,32 +6,46 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "test": "echo 'No tests yet'"
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "test:run": "vitest run"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "@openai/agents": "^0.0.11",
     "@supabase/supabase-js": "^2.0.0",
     "@types/cheerio": "^0.22.35",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "cheerio": "^1.1.0",
-    "next": "15.1.5",
+    "jsdom": "^26.1.0",
+    "next": "^15.4.1",
     "openai": "^4.0.0",
+    "p-limit": "^6.2.0",
+    "p-retry": "^6.2.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "rss-parser": "3.13.0",
-    "typescript": "5.7.2"
+    "turndown": "^7.2.0",
+    "typescript": "5.7.2",
+    "zod": "^3.25.67"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/turndown": "^5.0.5",
+    "@vitest/ui": "^3.2.4",
     "eslint": "^9",
     "eslint-config-next": "15.4.1",
     "tailwindcss": "^4",
-    "tsx": "4.19.2",
-    "typescript": "^5"
+    "tsx": "^4.20.3",
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }
