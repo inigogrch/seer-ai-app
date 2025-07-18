@@ -267,6 +267,12 @@ export const fetchAdapterDataExecute = async ({ adapterName }: { adapterName: st
 
 export const fetchURLContentExecute = async ({ url }: { url: string }) => {
   try {
+    // Ensure fetch is available
+    if (typeof fetch === 'undefined') {
+      const nodeFetch = require('node-fetch');
+      globalThis.fetch = nodeFetch;
+    }
+    
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
@@ -278,6 +284,10 @@ export const fetchURLContentExecute = async ({ url }: { url: string }) => {
     });
     
     clearTimeout(timeout);
+    
+    if (!response) {
+      throw new Error('No response from fetch');
+    }
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);

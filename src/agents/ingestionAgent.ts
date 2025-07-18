@@ -119,13 +119,18 @@ async function processItemsBatch(
 
   try {
     return await pRetry(async () => {
-      // Step 1: Fetch and extract content for all items
+      // Step 1: Fetch and extract content ONLY for items lacking sufficient content
       const itemsWithContent = await Promise.all(
         items.map(async (item) => {
           let fullContent = item.content || '';
           let extractedTitle = item.title;
           
-          if (item.url) {
+          // Only fetch content if we don't have sufficient content already
+          const needsContentEnrichment = !fullContent || fullContent.length < 200; // Threshold for "sufficient" content
+          
+          if (needsContentEnrichment && item.url?.trim()) {
+            logger.debug(`Enriching content for item with insufficient content: ${item.title} (current: ${fullContent.length} chars)`);
+            
             const contentResult = await fetchURLContentExecute({ url: item.url });
             
             if (contentResult.success && contentResult.html) {
@@ -135,12 +140,20 @@ async function processItemsBatch(
               });
               
               if (extractResult.success && extractResult.content) {
+                const originalLength = fullContent.length;
                 fullContent = extractResult.content;
-                if (!extractedTitle && extractResult.title) {
+                logger.debug(`Enriched content from ${originalLength} to ${extractResult.content.length} chars`);
+                
+                // Use extracted title if original is missing or very short
+                if ((!extractedTitle || extractedTitle.length < 10) && extractResult.title) {
                   extractedTitle = extractResult.title;
                 }
               }
             }
+          } else if (fullContent) {
+            logger.debug(`Skipping content enrichment for item with sufficient content: ${item.title} (${fullContent.length} chars)`);
+          } else {
+            logger.warn(`No content available and no URL to fetch from: ${item.title}`);
           }
           
           return {
@@ -213,11 +226,16 @@ async function processItem(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     return await pRetry(async () => {
-      // Step 1: Try to fetch full content
+      // Step 1: Try to fetch full content ONLY if needed
       let fullContent = item.content || '';
       let extractedTitle = item.title;
       
-      if (item.url) {
+      // Only fetch content if we don't have sufficient content already
+      const needsContentEnrichment = !fullContent || fullContent.length < 200;
+      
+      if (needsContentEnrichment && item.url?.trim()) {
+        logger.debug(`Enriching content for item with insufficient content: ${item.title} (current: ${fullContent.length} chars)`);
+        
         const contentResult = await fetchURLContentExecute({ url: item.url });
         
         if (contentResult.success && contentResult.html) {
@@ -227,14 +245,21 @@ async function processItem(
             url: item.url 
           });
           
-          if (extractResult.success && extractResult.content) {
-            fullContent = extractResult.content;
-            // Use extracted title if original is missing
-            if (!extractedTitle && extractResult.title) {
+                        if (extractResult.success && extractResult.content) {
+                const originalLength = fullContent.length;
+                fullContent = extractResult.content;
+                logger.debug(`Enriched content from ${originalLength} to ${extractResult.content.length} chars`);
+            
+            // Use extracted title if original is missing or very short
+            if ((!extractedTitle || extractedTitle.length < 10) && extractResult.title) {
               extractedTitle = extractResult.title;
             }
           }
         }
+      } else if (fullContent) {
+        logger.debug(`Skipping content enrichment for item with sufficient content: ${item.title} (${fullContent.length} chars)`);
+      } else {
+        logger.warn(`No content available and no URL to fetch from: ${item.title}`);
       }
       
       // Step 2: Generate embedding
