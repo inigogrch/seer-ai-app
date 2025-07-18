@@ -1,5 +1,6 @@
 import Parser from 'rss-parser';
 import { ParsedItem } from '../types/adapter';
+import { createHash } from 'crypto';
 
 const RSS_URL = 'https://tldr.tech/api/rss/tech';
 
@@ -148,8 +149,8 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       return [];
     }
     
-    // Process recent digests (limit to 3 for performance)
-    const recentDigests = digests.slice(0, 3);
+    // Process recent digests (increased from 3 to 10 for more comprehensive coverage)
+    const recentDigests = digests.slice(0, 10);
     console.log(`[TLDR.tech] Processing ${recentDigests.length} recent digests`);
     
     const allStories: TLDRStory[] = [];
@@ -175,17 +176,25 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
     
     // Convert to ParsedItem format
     const items: ParsedItem[] = allStories.map((story, index) => {
-      // Create unique external ID using URL hash or fallback
-      const urlHash = story.url ? 
-        `${story.url.split('/').pop()?.split('?')[0] || 'story'}-${index}` : 
-        `story-${Date.now()}-${index}`;
+      // Create deterministic external ID based on URL, not array index
+      let externalId: string;
+      if (story.url) {
+        // Create a hash of the URL for deterministic, unique IDs
+        const urlHash = createHash('md5').update(story.url).digest('hex').substring(0, 8);
+        const urlSlug = story.url.split('/').pop()?.split('?')[0] || 'story';
+        externalId = `tldr-${urlSlug}-${urlHash}`;
+      } else {
+        // Fallback for stories without URLs (rare)
+        const titleHash = createHash('md5').update(story.title + story.publishedAt.toISOString()).digest('hex').substring(0, 8);
+        externalId = `tldr-notitle-${titleHash}`;
+      }
       
       return {
-        external_id: `tldr-${urlHash}`,
-        source_slug: 'tldr-tech',
+        external_id: externalId,
+        source_slug: 'tldr_tech', // Single feed adapter
         title: story.title,
         url: story.url,
-        content: '', // Leave empty - ingestion agent will scrape full content
+        content: '', // Empty to trigger IngestionAgent content enrichment
         published_at: story.publishedAt.toISOString(),
         author: undefined, // TLDR.tech aggregates content from multiple sources
         image_url: undefined, // Will be extracted by ingestion agent

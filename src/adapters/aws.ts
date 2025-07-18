@@ -26,6 +26,39 @@ const AWS_FEEDS = {
   'aws-database': 'https://aws.amazon.com/blogs/database/feed/',
 } as const;
 
+// Mapping from database slugs (underscores) to internal feed keys (hyphens)
+const SLUG_MAPPING: Record<string, string> = {
+  // Database format → Internal format
+  'aws_big_data': 'aws-big-data',
+  'aws_ml': 'aws-machine-learning', 
+  'aws_startups': 'aws-startups',
+  'aws_developer': 'aws-developer',
+  'aws_database': 'aws-database',
+};
+
+// Convert database slug to internal feed key
+function mapSlugToFeedKey(slug: string): string {
+  // If it's already in internal format, return as-is
+  if (AWS_FEEDS.hasOwnProperty(slug)) {
+    return slug;
+  }
+  
+  // If it's in database format, convert it
+  const mapped = SLUG_MAPPING[slug];
+  if (mapped) {
+    return mapped;
+  }
+  
+  // Fallback: try converting underscores to hyphens
+  const fallback = slug.replace(/_/g, '-');
+  if (AWS_FEEDS.hasOwnProperty(fallback)) {
+    return fallback;
+  }
+  
+  // Return original if no mapping found
+  return slug;
+}
+
 function normalizeContent(item: RSSItem): string {
   // Prioritize content:encoded for full article content
   const fullContent = item['content:encoded'] || item.contentEncoded;
@@ -96,7 +129,7 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
   
   return {
     external_id: item.guid,
-    source_slug: sourceSlug,
+          source_slug: sourceSlug, // Already correct - uses the feed key
     title: item.title.trim(),
     url: item.link,
     content,
@@ -137,14 +170,23 @@ export async function fetchAndParse(feedSlugs?: string[]): Promise<ParsedItem[]>
   const allItems: ParsedItem[] = [];
   
   // Process feeds in parallel
-  const feedPromises = slugsToProcess.map(async (slug) => {
-    const feedUrl = AWS_FEEDS[slug as keyof typeof AWS_FEEDS];
+  const feedPromises = slugsToProcess.map(async (originalSlug) => {
+    const feedKey = mapSlugToFeedKey(originalSlug);
+    const feedUrl = AWS_FEEDS[feedKey as keyof typeof AWS_FEEDS];
+    
     if (!feedUrl) {
-      console.warn(`Unknown AWS feed slug: ${slug}`);
+      console.warn(`Unknown AWS feed slug: ${originalSlug} (mapped to: ${feedKey})`);
       return [];
     }
     
-    return fetchSingleFeed(slug, feedUrl);
+    // Fetch with internal feed key but return items with original database slug
+    const items = await fetchSingleFeed(feedKey, feedUrl);
+    
+    // Convert source_slug back to original database format
+    return items.map(item => ({
+      ...item,
+      source_slug: originalSlug // Use the original database format
+    }));
   });
   
   const results = await Promise.all(feedPromises);

@@ -1,55 +1,67 @@
--- Migration: Create views and functions for analytics and search
+-- Migration: Change source_id from UUID to INTEGER safely
 
--- Advanced search function for semantic similarity
-CREATE OR REPLACE FUNCTION search_stories_by_similarity(
-    query_embedding vector,
-    match_threshold float DEFAULT 0.7,
-    match_count int DEFAULT 10,
-    category_filter text DEFAULT NULL,
-    source_filter integer DEFAULT NULL
-)
-RETURNS TABLE (
-    id uuid,
-    title text,
-    url text,
-    content text,
-    summary text,
-    author text,
-    image_url text,
-    published_at timestamp with time zone,
-    story_category text,
-    tags text[],
-    source_id integer,
-    similarity float
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        s.id,
-        s.title,
-        s.url,
-        s.content,
-        s.summary,
-        s.author,
-        s.image_url,
-        s.published_at,
-        s.story_category,
-        s.tags,
-        s.source_id,
-        1 - (s.embedding <=> query_embedding) AS similarity
-    FROM stories s
-    WHERE s.embedding IS NOT NULL
-        AND 1 - (s.embedding <=> query_embedding) > match_threshold
-        AND (category_filter IS NULL OR s.story_category = category_filter)
-        AND (source_filter IS NULL OR s.source_id = source_filter)
-    ORDER BY s.embedding <=> query_embedding
-    LIMIT match_count;
-END;
-$$;
+-- Drop the foreign key constraint first
+ALTER TABLE stories DROP CONSTRAINT IF EXISTS stories_source_id_fkey CASCADE;
 
--- Analytics view for dashboards and monitoring
+-- Create the sequence for sources table
+CREATE SEQUENCE IF NOT EXISTS sources_id_seq;
+
+-- Create a temporary mapping table to preserve source relationships
+CREATE TABLE source_id_mapping (
+    old_uuid UUID PRIMARY KEY,
+    new_id INTEGER
+);
+
+-- Populate the mapping table with existing sources using row_number() for consistent IDs
+INSERT INTO source_id_mapping (old_uuid, new_id)
+SELECT id, row_number() OVER (ORDER BY created_at, name) as new_id
+FROM sources;
+
+-- Update the sequence to start from the next available number
+SELECT setval('sources_id_seq', (SELECT MAX(new_id) FROM source_id_mapping));
+
+-- Drop existing foreign key constraint (use CASCADE to handle dependent objects)
+ALTER TABLE stories DROP CONSTRAINT IF EXISTS stories_source_id_fkey CASCADE;
+
+-- Add a new integer column to sources table
+ALTER TABLE sources ADD COLUMN id_new INTEGER;
+
+-- Populate the new integer column using our mapping
+UPDATE sources 
+SET id_new = (SELECT new_id FROM source_id_mapping WHERE old_uuid = sources.id);
+
+-- Add a new integer column to stories table  
+ALTER TABLE stories ADD COLUMN source_id_new INTEGER;
+
+-- Update stories to use the new integer source_id
+UPDATE stories 
+SET source_id_new = (SELECT new_id FROM source_id_mapping WHERE old_uuid = stories.source_id);
+
+-- Drop all views that depend on source_id before modifying tables
+DROP VIEW IF EXISTS story_analytics CASCADE;
+DROP VIEW IF EXISTS story_cards CASCADE;
+DROP VIEW IF EXISTS stories_missing_embeddings CASCADE;
+DROP VIEW IF EXISTS stories_missing_metadata CASCADE;
+
+-- Now drop the old UUID columns and rename the new ones
+ALTER TABLE sources DROP COLUMN id;
+ALTER TABLE sources RENAME COLUMN id_new TO id;
+ALTER TABLE sources ADD PRIMARY KEY (id);
+ALTER TABLE sources ALTER COLUMN id SET DEFAULT nextval('sources_id_seq');
+
+ALTER TABLE stories DROP COLUMN source_id;
+ALTER TABLE stories RENAME COLUMN source_id_new TO source_id;
+ALTER TABLE stories ALTER COLUMN source_id SET NOT NULL;
+
+-- Re-add the foreign key constraint
+ALTER TABLE stories 
+    ADD CONSTRAINT stories_source_id_fkey 
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE;
+
+-- Drop the mapping table
+DROP TABLE source_id_mapping;
+
+-- Recreate views
 CREATE OR REPLACE VIEW story_analytics AS
 SELECT
     s.id,
@@ -83,7 +95,6 @@ LEFT JOIN (
     GROUP BY story_id
 ) f ON s.id = f.story_id;
 
--- Story cards view optimized for UI display
 CREATE OR REPLACE VIEW story_cards AS
 SELECT
     s.id,
@@ -115,7 +126,7 @@ LEFT JOIN (
 WHERE s.published_at > NOW() - INTERVAL '90 days'
 ORDER BY boosted_score DESC, s.published_at DESC;
 
--- Views for missing data monitoring
+-- Recreate missing data monitoring views
 CREATE OR REPLACE VIEW stories_missing_embeddings AS
 SELECT 
     id,
@@ -139,4 +150,4 @@ SELECT
     CASE WHEN author IS NULL OR author = '' THEN true ELSE false END AS missing_author,
     CASE WHEN image_url IS NULL OR image_url = '' THEN true ELSE false END AS missing_image,
     CASE WHEN story_category IS NULL THEN true ELSE false END AS missing_category
-FROM stories; 
+FROM stories;

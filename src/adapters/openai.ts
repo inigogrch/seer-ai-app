@@ -11,12 +11,43 @@ interface RSSItem {
   description?: string;
   categories?: string[];
   category?: string | string[];
+  content?: string;
+  contentSnippet?: string;
 }
 
 // OpenAI news feed configuration
 const OPENAI_FEEDS = {
   'openai-news': 'https://openai.com/news/rss.xml',
 } as const;
+
+// Mapping from database slugs (underscores) to internal feed keys (hyphens)
+const SLUG_MAPPING: Record<string, string> = {
+  // Database format → Internal format
+  'openai_news': 'openai-news',
+};
+
+// Convert database slug to internal feed key
+function mapSlugToFeedKey(slug: string): string {
+  // If it's already in internal format, return as-is
+  if (OPENAI_FEEDS.hasOwnProperty(slug)) {
+    return slug;
+  }
+  
+  // If it's in database format, convert it
+  const mapped = SLUG_MAPPING[slug];
+  if (mapped) {
+    return mapped;
+  }
+  
+  // Fallback: try converting underscores to hyphens
+  const fallback = slug.replace(/_/g, '-');
+  if (OPENAI_FEEDS.hasOwnProperty(fallback)) {
+    return fallback;
+  }
+  
+  // Return original if no mapping found
+  return slug;
+}
 
 function normalizeDescription(item: RSSItem): string {
   // Extract description for metadata, but don't use as content
@@ -62,18 +93,22 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
   const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
   const description = normalizeDescription(item);
   
+  // Use RSS description as content since OpenAI blocks direct scraping
+  const rssContent = item.content || item.contentSnippet || description || '';
+  
   return {
     external_id: item.guid,
     source_slug: sourceSlug,
     title: item.title.trim(),
     url: item.link,
-    content: '', // Leave empty - content will be scraped by ingestion agent
+    content: rssContent, // Use RSS content instead of empty string
     published_at: publishedAt,
     author: undefined, // OpenAI RSS doesn't include author info
     image_url: undefined, // No image info in RSS feed
     original_metadata: {
       description,
       categories: normalizeCategories(item),
+      rss_content_length: rssContent.length,
       raw_item: item
     }
   };
@@ -105,14 +140,23 @@ export async function fetchAndParse(feedSlugs?: string[]): Promise<ParsedItem[]>
   const allItems: ParsedItem[] = [];
   
   // Process feeds in parallel (though only one feed currently)
-  const feedPromises = slugsToProcess.map(async (slug) => {
-    const feedUrl = OPENAI_FEEDS[slug as keyof typeof OPENAI_FEEDS];
+  const feedPromises = slugsToProcess.map(async (originalSlug) => {
+    const feedKey = mapSlugToFeedKey(originalSlug);
+    const feedUrl = OPENAI_FEEDS[feedKey as keyof typeof OPENAI_FEEDS];
+    
     if (!feedUrl) {
-      console.warn(`Unknown OpenAI feed slug: ${slug}`);
+      console.warn(`Unknown OpenAI feed slug: ${originalSlug} (mapped to: ${feedKey})`);
       return [];
     }
     
-    return fetchSingleFeed(slug, feedUrl);
+    // Fetch with internal feed key but return items with original database slug
+    const items = await fetchSingleFeed(feedKey, feedUrl);
+    
+    // Convert source_slug back to original database format
+    return items.map(item => ({
+      ...item,
+      source_slug: originalSlug // Use the original database format
+    }));
   });
   
   const results = await Promise.all(feedPromises);
