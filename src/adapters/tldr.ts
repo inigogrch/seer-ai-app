@@ -148,8 +148,8 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       return [];
     }
     
-    // Process recent digests (limit to 3 for performance)
-    const recentDigests = digests.slice(0, 3);
+    // Process recent digests (increased from 3 to 10 for more comprehensive coverage)
+    const recentDigests = digests.slice(0, 10);
     console.log(`[TLDR.tech] Processing ${recentDigests.length} recent digests`);
     
     const allStories: TLDRStory[] = [];
@@ -182,7 +182,7 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       
       return {
         external_id: `tldr-${urlHash}`,
-        source_slug: 'tldr-tech',
+                  source_slug: 'tldr_tech', // Single feed adapter
         title: story.title,
         url: story.url,
         content: '', // Leave empty - ingestion agent will scrape full content

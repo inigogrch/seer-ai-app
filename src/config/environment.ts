@@ -33,25 +33,31 @@ export interface EnvironmentConfig {
  * @throws Error if required environment variables are missing
  */
 export function loadEnvironmentConfig(): EnvironmentConfig {
+  // Support both Next.js naming convention and direct naming
+  // For server-side operations (like ingestion), prefer SERVICE_ROLE_KEY to bypass RLS
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
   const requiredVars = [
-    'OPENAI_API_KEY',
-    'SUPABASE_URL',
-    'SUPABASE_KEY'
+    { name: 'OPENAI_API_KEY', value: openaiKey },
+    { name: 'SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)', value: supabaseUrl },
+    { name: 'SUPABASE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY)', value: supabaseKey }
   ];
 
   // Validate required environment variables
-  const missing = requiredVars.filter(varName => !process.env[varName]);
+  const missing = requiredVars.filter(varObj => !varObj.value);
   if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    throw new Error(`Missing required environment variables: ${missing.map(v => v.name).join(', ')}`);
   }
 
   return {
     openai: {
-      apiKey: process.env.OPENAI_API_KEY!
+      apiKey: openaiKey!
     },
     supabase: {
-      url: process.env.SUPABASE_URL!,
-      key: process.env.SUPABASE_KEY!
+      url: supabaseUrl!,
+      key: supabaseKey!
     },
     ingestion: {
       concurrencyLimit: parseInt(process.env.CONCURRENCY_LIMIT || '4', 10),

@@ -10,7 +10,7 @@ import {
   createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute 
-} from '../ingestionTools';
+} from '../ingestion-helpers';
 import { openai } from '../../../utils/openaiClient';
 import { createMockSupabaseClient, createMockOpenAIResponse } from '../../../__tests__/setup';
 
@@ -76,18 +76,265 @@ describe('IngestionTools', () => {
   });
 
   describe('fetchActiveSourceSlugs', () => {
-    it('should fetch active sources successfully', async () => {
+    it('should fetch active sources successfully with correct fields and ordering', async () => {
+      // Mock multiple sources with different priorities to test ordering
+      const mockSources = [
+        { id: 3, slug: 'high-priority', name: 'High Priority Source', adapter_name: 'aws', priority: 100 },
+        { id: 1, slug: 'medium-priority', name: 'Medium Priority Source', adapter_name: 'techCrunch', priority: 50 },
+        { id: 2, slug: 'low-priority', name: 'Low Priority Source', adapter_name: 'arxiv', priority: 10 }
+      ];
+
+      // Mock the Supabase chain to return our test data
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: mockSources,
+        error: null
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      // Mock createClient to return our mock
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      const result = await fetchActiveSourceSlugsExecute();
+      
+      // Verify the result structure
+      expect(result.success).toBe(true);
+      expect(result.sources).toHaveLength(3);
+      expect(result.count).toBe(3);
+      
+      // Verify all required fields are present
+      result.sources.forEach(source => {
+        expect(source).toHaveProperty('id');
+        expect(source).toHaveProperty('slug');
+        expect(source).toHaveProperty('name');
+        expect(source).toHaveProperty('adapter_name');
+      });
+      
+      // Verify correct Supabase query was made
+      expect(mockFrom).toHaveBeenCalledWith('sources');
+      expect(mockSelect).toHaveBeenCalledWith('id, slug, name, adapter_name');
+      expect(mockEq).toHaveBeenCalledWith('is_active', true);
+      expect(mockOrder).toHaveBeenCalledWith('priority', { ascending: false });
+      
+      // Verify sources are returned (ordering would be handled by database)
+      expect(result.sources).toEqual(mockSources);
+    });
+
+    it('should handle empty table (no active sources)', async () => {
+      // Mock empty result
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: [],
+        error: null
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
       const result = await fetchActiveSourceSlugsExecute();
       
       expect(result.success).toBe(true);
-      expect(result.sources).toHaveLength(1);
-      expect(result.sources[0].slug).toBe('test');
+      expect(result.sources).toEqual([]);
+      expect(result.count).toBe(0);
+    });
+
+    it('should handle null data from database', async () => {
+      // Mock null data (which can happen with Supabase)
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: null,
+        error: null
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      const result = await fetchActiveSourceSlugsExecute();
+      
+      expect(result.success).toBe(true);
+      expect(result.sources).toEqual([]);
+      expect(result.count).toBe(0);
+    });
+
+    it('should handle database errors gracefully', async () => {
+      // Mock database error - create an Error object that will be thrown
+      const dbError = new Error('column "priority" does not exist');
+      (dbError as any).code = '42703';
+      
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: null,
+        error: dbError
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      const result = await fetchActiveSourceSlugsExecute();
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('column "priority" does not exist');
+      expect(result.sources).toEqual([]);
+    });
+
+    it('should handle missing table errors', async () => {
+      // Mock table not found error - create an Error object that will be thrown
+      const tableError = new Error('relation "sources" does not exist');
+      (tableError as any).code = '42P01';
+      
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: null,
+        error: tableError
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      const result = await fetchActiveSourceSlugsExecute();
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('relation "sources" does not exist');
+      expect(result.sources).toEqual([]);
+    });
+
+    it('should handle network/connection errors', async () => {
+      // Mock network error by throwing from the chain
+      const mockOrder = jest.fn(() => Promise.reject(new Error('network error')));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      const result = await fetchActiveSourceSlugsExecute();
+      
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('network error');
+      expect(result.sources).toEqual([]);
+    });
+
+    it('should verify the exact query structure and parameters', async () => {
+      // Create detailed mocks to verify exact call sequence
+      const mockOrder = jest.fn(() => Promise.resolve({
+        data: [{ id: 1, slug: 'test', name: 'Test', adapter_name: 'test' }],
+        error: null
+      }));
+      
+      const mockEq = jest.fn(() => ({
+        order: mockOrder
+      }));
+      
+      const mockSelect = jest.fn(() => ({
+        eq: mockEq
+      }));
+      
+      const mockFrom = jest.fn(() => ({
+        select: mockSelect
+      }));
+
+      const { createClient } = require('@supabase/supabase-js');
+      createClient.mockReturnValueOnce({
+        from: mockFrom
+      });
+
+      await fetchActiveSourceSlugsExecute();
+      
+      // Verify exact call sequence and parameters
+      expect(mockFrom).toHaveBeenCalledTimes(1);
+      expect(mockFrom).toHaveBeenCalledWith('sources');
+      
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+      expect(mockSelect).toHaveBeenCalledWith('id, slug, name, adapter_name');
+      
+      expect(mockEq).toHaveBeenCalledTimes(1);
+      expect(mockEq).toHaveBeenCalledWith('is_active', true);
+      
+      expect(mockOrder).toHaveBeenCalledTimes(1);
+      expect(mockOrder).toHaveBeenCalledWith('priority', { ascending: false });
     });
   });
 
   describe('fetchAdapterData', () => {
     it('should fetch data from adapter successfully', async () => {
-      const result = await fetchAdapterDataExecute({ sourceSlug: 'test' });
+      const result = await fetchAdapterDataExecute({ adapterName: 'test' });
       
       expect(result.success).toBe(true);
       expect(result.items).toHaveLength(1);
@@ -97,7 +344,7 @@ describe('IngestionTools', () => {
     });
 
     it('should handle adapter errors gracefully', async () => {
-      const result = await fetchAdapterDataExecute({ sourceSlug: 'nonexistent' });
+      const result = await fetchAdapterDataExecute({ adapterName: 'nonexistent' });
       
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();

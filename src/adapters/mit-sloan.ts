@@ -29,7 +29,7 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       
       return {
         external_id: item.guid || item.link || '',
-        source_slug: 'mit-sloan',
+                  source_slug: 'mit_sloan', // Single feed adapter
         title: item.title || '',
         url: item.link || '',
         content: content,

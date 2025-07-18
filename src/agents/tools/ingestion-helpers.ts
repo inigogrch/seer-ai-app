@@ -1,9 +1,8 @@
 /**
- * Tools for the IngestionAgent
- * These tools handle various aspects of the ingestion pipeline
+ * Ingestion Helper Functions
+ * Pure functions that handle the core ingestion pipeline logic
  */
 
-import { tool } from '@openai/agents';
 import { createClient } from '@supabase/supabase-js';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
@@ -11,10 +10,16 @@ import TurndownService from 'turndown';
 import { openai } from '../../utils/openaiClient';
 import { loadEnvironmentConfig } from '../../config/environment';
 import { ParsedItem } from '../../types/adapter';
-import { z } from 'zod';
 import CryptoJS from 'crypto-js';
 
-const config = loadEnvironmentConfig();
+// Lazy-loaded config to avoid loading env vars at import time
+let _config: ReturnType<typeof loadEnvironmentConfig> | null = null;
+function getConfig() {
+  if (!_config) {
+    _config = loadEnvironmentConfig();
+  }
+  return _config;
+}
 
 // Cache Helper Functions
 
@@ -31,12 +36,12 @@ function generateContentHash(text: string): string {
  * Record cache metrics for monitoring
  */
 async function recordCacheMetric(eventType: 'hit' | 'miss' | 'store', modelName = 'text-embedding-3-small', metadata: Record<string, any> = {}) {
-  if (!config.cache.enabled) return;
+  if (!getConfig().cache.enabled) return;
   
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     await supabase
-      .from(config.cache.metricsTable)
+      .from(getConfig().cache.metricsTable)
       .insert({
         event_type: eventType,
         model_name: modelName,
@@ -53,13 +58,13 @@ async function recordCacheMetric(eventType: 'hit' | 'miss' | 'store', modelName 
  * Get cached embedding if available and not expired
  */
 async function getCachedEmbedding(contentHash: string): Promise<number[] | null> {
-  if (!config.cache.enabled) return null;
+  if (!getConfig().cache.enabled) return null;
   
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     const { data, error } = await supabase
-      .from(config.cache.cacheTable)
+      .from(getConfig().cache.cacheTable)
       .select('embedding')
       .eq('content_hash', contentHash)
       .gt('expires_at', new Date().toISOString())
@@ -91,16 +96,16 @@ async function storeCachedEmbedding(
   embedding: number[], 
   modelName = 'text-embedding-3-small'
 ): Promise<void> {
-  if (!config.cache.enabled) return;
+  if (!getConfig().cache.enabled) return;
   
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + config.cache.ttlDays);
+    expiresAt.setDate(expiresAt.getDate() + getConfig().cache.ttlDays);
     
     await supabase
-      .from(config.cache.cacheTable)
+      .from(getConfig().cache.cacheTable)
       .upsert({
         content_hash: contentHash,
         input_text_preview: text.substring(0, 200),
@@ -123,14 +128,14 @@ async function storeCachedEmbedding(
  * Get cached embeddings for multiple texts (batch operation)
  */
 async function getCachedEmbeddingsBatch(texts: string[]): Promise<(number[] | null)[]> {
-  if (!config.cache.enabled) return texts.map(() => null);
+  if (!getConfig().cache.enabled) return texts.map(() => null);
   
   try {
     const contentHashes = texts.map(generateContentHash);
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     const { data, error } = await supabase
-      .from(config.cache.cacheTable)
+      .from(getConfig().cache.cacheTable)
       .select('content_hash, embedding')
       .in('content_hash', contentHashes)
       .gt('expires_at', new Date().toISOString());
@@ -178,12 +183,12 @@ async function storeCachedEmbeddingsBatch(
   embeddings: number[][], 
   modelName = 'text-embedding-3-small'
 ): Promise<void> {
-  if (!config.cache.enabled || texts.length !== embeddings.length) return;
+  if (!getConfig().cache.enabled || texts.length !== embeddings.length) return;
   
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + config.cache.ttlDays);
+    expiresAt.setDate(expiresAt.getDate() + getConfig().cache.ttlDays);
     
     const cacheEntries = texts.map((text, index) => ({
       content_hash: generateContentHash(text),
@@ -195,7 +200,7 @@ async function storeCachedEmbeddingsBatch(
     }));
     
     await supabase
-      .from(config.cache.cacheTable)
+      .from(getConfig().cache.cacheTable)
       .upsert(cacheEntries, {
         onConflict: 'content_hash'
       });
@@ -211,60 +216,47 @@ async function storeCachedEmbeddingsBatch(
 
 // Execute Functions (exported for direct use)
 
-export const fetchAdapterDataExecute = async ({ sourceSlug }: { sourceSlug: string }) => {
+export const fetchAdapterDataExecute = async ({ adapterName }: { adapterName: string }) => {
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
-    // First, get the source record to find the adapter_name
-    const { data: sourceData, error: sourceError } = await supabase
-      .from(config.ingestion.feedSourcesTable)
-      .select('adapter_name, slug, endpoint_url')
-      .eq('slug', sourceSlug)
-      .eq('is_active', true)
-      .single();
+    // Get all active sources for this adapter to validate it exists and is active
+    const { data: sources, error: sourcesError } = await supabase
+      .from(getConfig().ingestion.feedSourcesTable)
+      .select('id, slug, name, adapter_name')
+      .eq('adapter_name', adapterName)
+      .eq('is_active', true);
     
-    if (sourceError || !sourceData) {
-      throw new Error(`Source not found or inactive: ${sourceSlug}`);
+    if (sourcesError || !sources || sources.length === 0) {
+      throw new Error(`No active sources found for adapter: ${adapterName}`);
     }
     
-    // Dynamically import the adapter module using adapter_name
-    const adapter = await import(`../../adapters/${sourceData.adapter_name}.js`);
+    // Dynamically import the adapter module
+    const adapter = await import(`../../adapters/${adapterName}.js`);
     
     if (!adapter.fetchAndParse) {
-      throw new Error(`Adapter ${sourceData.adapter_name} does not have fetchAndParse method`);
+      throw new Error(`Adapter ${adapterName} does not have fetchAndParse method`);
     }
     
-    // Call the adapter with the specific slug
-    // Handle different adapter interfaces:
-    // - Some adapters take no params (techCrunch, ventureBeat)
-    // - Some adapters take a single slug (arxiv, mit-research)
-    // - Some adapters take an array of slugs (aws)
-    let items;
+    // Call adapter with no parameters to get all its sources
+    // All adapters support this: aws(), arxiv(), anthropic(), etc.
+    const items = await adapter.fetchAndParse();
     
-    // Check adapter interface by examining the function signature
-    const fetchAndParseStr = adapter.fetchAndParse.toString();
-    if (fetchAndParseStr.includes('feedSlugs') || sourceData.adapter_name === 'aws') {
-      // AWS-style: array of slugs
-      items = await adapter.fetchAndParse([sourceSlug]);
-    } else if (fetchAndParseStr.includes('feedSlug') || fetchAndParseStr.includes('slug')) {
-      // arXiv-style: single slug
-      items = await adapter.fetchAndParse(sourceSlug);
-    } else {
-      // TechCrunch-style: no parameters
-      items = await adapter.fetchAndParse();
-    }
+    // Validate that returned items have source_slug that matches our database
+    const validSourceSlugs = new Set(sources.map(s => s.slug));
+    const validatedItems = items.filter((item: ParsedItem) => {
+      if (!validSourceSlugs.has(item.source_slug)) {
+        console.warn(`[${adapterName}] Skipping item with unknown source_slug: ${item.source_slug}`);
+        return false;
+      }
+      return true;
+    });
     
-    // Ensure all items have the correct source_slug from our database
-    const validatedItems = items.map((item: ParsedItem) => ({
-      ...item,
-      source_slug: sourceSlug // Override with our database slug
-    }));
+    console.log(`Fetched ${validatedItems.length} items from ${adapterName} adapter (${sources.length} sources)`);
     
-    console.log(`Fetched ${validatedItems.length} items from ${sourceSlug} using adapter ${sourceData.adapter_name}`);
-    
-    return { success: true, items: validatedItems, adapterName: sourceData.adapter_name };
+    return { success: true, items: validatedItems, adapterName, sourceCount: sources.length };
   } catch (error) {
-    console.error(`Error fetching adapter data for ${sourceSlug}:`, error);
+    console.error(`Error fetching adapter data for ${adapterName}:`, error);
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Unknown error', 
@@ -370,7 +362,7 @@ export const createEmbeddingExecute = async ({ texts, truncate }: { texts: strin
     let cachedEmbeddings: (number[] | null)[] = [];
     let cacheHits = 0;
     
-    if (config.cache.enabled) {
+    if (getConfig().cache.enabled) {
       cachedEmbeddings = await getCachedEmbeddingsBatch(processedTexts);
       cacheHits = cachedEmbeddings.filter(embedding => embedding !== null).length;
       
@@ -406,7 +398,7 @@ export const createEmbeddingExecute = async ({ texts, truncate }: { texts: strin
       apiUsage = response.usage;
       
       // Step 4: Store new embeddings in cache
-      if (config.cache.enabled && newEmbeddings.length > 0) {
+      if (getConfig().cache.enabled && newEmbeddings.length > 0) {
         await storeCachedEmbeddingsBatch(textsToEmbed, newEmbeddings);
       }
     }
@@ -470,7 +462,7 @@ export const createSingleEmbeddingExecute = async ({ text, truncate }: { text: s
       : text;
     
     // Check cache first
-    if (config.cache.enabled) {
+    if (getConfig().cache.enabled) {
       const contentHash = generateContentHash(processedText);
       const cachedEmbedding = await getCachedEmbedding(contentHash);
       
@@ -503,7 +495,7 @@ export const createSingleEmbeddingExecute = async ({ text, truncate }: { text: s
     const embedding = response.data[0].embedding;
     
     // Store in cache
-    if (config.cache.enabled) {
+    if (getConfig().cache.enabled) {
       const contentHash = generateContentHash(processedText);
       await storeCachedEmbedding(contentHash, processedText, embedding);
     }
@@ -547,7 +539,7 @@ export const upsertSupabaseExecute = async ({ story }: {
   }
 }) => {
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     // Prepare the story data for insertion - map metadata to original_metadata
     const { metadata, ...restStory } = story;
@@ -558,7 +550,7 @@ export const upsertSupabaseExecute = async ({ story }: {
     };
     
     const { data, error } = await supabase
-      .from(config.ingestion.storiesTable)
+      .from(getConfig().ingestion.storiesTable)
       .upsert(storyData, {
         onConflict: 'external_id,source_id',
         ignoreDuplicates: false // Update if exists
@@ -587,10 +579,10 @@ export const upsertSupabaseExecute = async ({ story }: {
 
 export const fetchActiveSourceSlugsExecute = async () => {
   try {
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     const { data, error } = await supabase
-      .from(config.ingestion.feedSourcesTable)
+      .from(getConfig().ingestion.feedSourcesTable)
       .select('id, slug, name, adapter_name')
       .eq('is_active', true)
       .order('priority', { ascending: false });
@@ -619,7 +611,7 @@ export const fetchActiveSourceSlugsExecute = async () => {
  */
 export const getCacheStatsExecute = async () => {
   try {
-    if (!config.cache.enabled) {
+    if (!getConfig().cache.enabled) {
       return {
         success: true,
         cacheEnabled: false,
@@ -627,11 +619,11 @@ export const getCacheStatsExecute = async () => {
       };
     }
     
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     // Get cache table statistics
     const { data: cacheData, error: cacheError } = await supabase
-      .from(config.cache.cacheTable)
+      .from(getConfig().cache.cacheTable)
       .select('id, created_at, expires_at, access_count, model_name')
       .order('created_at', { ascending: false });
     
@@ -684,9 +676,9 @@ export const getCacheStatsExecute = async () => {
         }
       },
       config: {
-        ttlDays: config.cache.ttlDays,
-        cacheTable: config.cache.cacheTable,
-        metricsTable: config.cache.metricsTable
+        ttlDays: getConfig().cache.ttlDays,
+        cacheTable: getConfig().cache.cacheTable,
+        metricsTable: getConfig().cache.metricsTable
       }
     };
   } catch (error) {
@@ -703,14 +695,14 @@ export const getCacheStatsExecute = async () => {
  */
 export const cleanupCacheExecute = async () => {
   try {
-    if (!config.cache.enabled) {
+    if (!getConfig().cache.enabled) {
       return {
         success: false,
         message: 'Cache is disabled'
       };
     }
     
-    const supabase = createClient(config.supabase.url, config.supabase.key);
+    const supabase = createClient(getConfig().supabase.url, getConfig().supabase.key);
     
     const { data, error } = await supabase.rpc('cleanup_expired_embeddings');
     
@@ -730,89 +722,4 @@ export const cleanupCacheExecute = async () => {
       error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
-};
-
-// Tool Definitions (for use with OpenAI Agents SDK)
-
-/**
- * Tool to fetch and parse data from a specific adapter
- */
-export const fetchAdapterData = tool({
-  name: 'fetchAdapterData',
-  description: 'Call adapter.fetchAndParse() for a given source slug',
-  parameters: z.object({
-    sourceSlug: z.string().describe('The slug identifier for the source adapter')
-  }),
-  execute: fetchAdapterDataExecute
-});
-
-/**
- * Tool to fetch full HTML content from a URL
- */
-export const fetchURLContent = tool({
-  name: 'fetchURLContent',
-  description: 'Fetch full HTML content of a URL with timeout and error handling',
-  parameters: z.object({
-    url: z.string().url().describe('The URL to fetch content from')
-  }),
-  execute: fetchURLContentExecute
-});
-
-/**
- * Tool to extract main article content from HTML
- */
-export const extractMainContent = tool({
-  name: 'extractMainContent',
-  description: 'Extract article text using Readability and convert to clean text',
-  parameters: z.object({
-    html: z.string().describe('The HTML content to parse'),
-    url: z.string().url().nullable().describe('The source URL for better parsing')
-  }),
-  execute: extractMainContentExecute
-});
-
-/**
- * Tool to generate embeddings via OpenAI
- */
-export const createEmbedding = tool({
-  name: 'createEmbedding',
-  description: 'Generate 1536-dim embeddings via OpenAI text-embedding-3-small model for batch of texts',
-  parameters: z.object({
-    texts: z.array(z.string()).describe('Array of texts to generate embeddings for'),
-    truncate: z.boolean().describe('Whether to truncate texts if too long')
-  }),
-  execute: createEmbeddingExecute
-});
-
-/**
- * Tool to upsert story records into Supabase
- */
-export const upsertSupabase = tool({
-  name: 'upsertSupabase',
-  description: 'Upsert a story record into Supabase with conflict resolution',
-  parameters: z.object({
-    story: z.object({
-      external_id: z.string(),
-      source_id: z.number(),
-      title: z.string(),
-      url: z.string().url(),
-      author: z.string().nullable(),
-      published_at: z.string().nullable(), // Made nullable to match updated schema
-      summary: z.string().nullable(),
-      content: z.string().nullable(), // Made nullable to match updated schema
-      embedding: z.array(z.number()).nullable(),
-      metadata: z.record(z.any()).nullable()
-    }).describe('The story object to upsert')
-  }),
-  execute: upsertSupabaseExecute
-});
-
-/**
- * Tool to fetch active source slugs from Supabase
- */
-export const fetchActiveSourceSlugs = tool({
-  name: 'fetchActiveSourceSlugs',
-  description: 'Query Supabase sources table for active sources',
-  parameters: z.object({}),
-  execute: fetchActiveSourceSlugsExecute
-}); 
+}; 

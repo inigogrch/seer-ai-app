@@ -370,7 +370,7 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       
       items.push({
         external_id: externalId,
-        source_slug: 'anthropic',
+                  source_slug: 'anthropic_news', // Single feed adapter
         title: post.title,
         url: post.url,
         content: '', // Leave empty - ingestion agent will scrape full content

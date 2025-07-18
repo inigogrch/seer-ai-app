@@ -18,7 +18,9 @@ import {
   extractMainContent, 
   createEmbedding, 
   upsertSupabase,
-  fetchActiveSourceSlugs,
+  fetchActiveSourceSlugs
+} from './tools/ingestion-tools';
+import {
   // Import execute functions for direct use
   fetchAdapterDataExecute,
   fetchURLContentExecute,
@@ -27,19 +29,12 @@ import {
   createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute
-} from './tools/ingestionTools';
+} from './tools/ingestion-helpers';
 import { loadEnvironmentConfig } from '../config/environment';
 import { logger } from '../utils/logger';
 
 // Types
-interface ParsedItem {
-  title: string;
-  url: string;
-  author?: string;
-  published_at?: string;
-  summary?: string;
-  metadata?: Record<string, any>;
-}
+import type { ParsedItem } from '../types/adapter';
 
 interface StoryRecord {
   external_id: string;
@@ -72,20 +67,17 @@ function buildStoryRecord(
   content?: string, 
   embedding?: number[]
 ): StoryRecord {
-  // Generate external_id from URL (could also use a hash)
-  const external_id = Buffer.from(item.url).toString('base64').slice(0, 50);
-  
   return {
-    external_id,
+    external_id: item.external_id,
     source_id: sourceId,
     title: item.title,
     url: item.url,
     author: item.author || null,
-    published_at: item.published_at || null,
-    summary: item.summary || null,
-    content: content || item.summary || null,
+    published_at: item.published_at,
+    summary: null, // Will be filled by SummarizerAgent later
+    content: content || item.content || null, // Full content from URL extraction or fallback to adapter content
     embedding: embedding || null,
-    metadata: item.metadata || null
+    metadata: item.original_metadata || null
   };
 }
 
@@ -130,7 +122,7 @@ async function processItemsBatch(
       // Step 1: Fetch and extract content for all items
       const itemsWithContent = await Promise.all(
         items.map(async (item) => {
-          let fullContent = item.summary || '';
+          let fullContent = item.content || '';
           let extractedTitle = item.title;
           
           if (item.url) {
@@ -222,7 +214,7 @@ async function processItem(
   try {
     return await pRetry(async () => {
       // Step 1: Try to fetch full content
-      let fullContent = item.summary || '';
+      let fullContent = item.content || '';
       let extractedTitle = item.title;
       
       if (item.url) {
@@ -324,54 +316,87 @@ export async function runIngestion() {
     
     logger.info(`Found ${sourcesResult.sources.length} active sources`);
     
-    // Step 2: Process each source
-    for (const source of sourcesResult.sources) {
+    // Group sources by adapter_name for efficient processing  
+    const adapterGroups = sourcesResult.sources.reduce((acc, source) => {
+      if (!acc[source.adapter_name]) {
+        acc[source.adapter_name] = [];
+      }
+      acc[source.adapter_name].push(source);
+      return acc;
+    }, {} as Record<string, Array<{ id: any; slug: any; name: any; adapter_name: any }>>);
+
+    // Create source slug to ID mapping for efficient lookups
+    const sourceSlugToId = new Map<string, number>();
+    sourcesResult.sources.forEach(source => {
+      sourceSlugToId.set(source.slug, source.id);
+    });
+
+    logger.info(`Processing ${Object.keys(adapterGroups).length} adapters covering ${sourcesResult.sources.length} sources`);
+
+    // Step 2: Process each adapter (which handles all its sources at once)
+    for (const [adapterName, sources] of Object.entries(adapterGroups)) {
       try {
-        logger.info(`Processing source: ${source.name} (${source.slug})`);
+        logger.info(`Processing adapter: ${adapterName} (${sources.length} sources: ${sources.map(s => s.slug).join(', ')})`);
         
-        // Fetch items from adapter
+        // Fetch items from adapter (gets all sources for this adapter)
         const adapterResult = await fetchAdapterDataExecute({ 
-          sourceSlug: source.adapter_name || source.slug 
+          adapterName 
         });
         
         if (!adapterResult.success || !adapterResult.items) {
-          logger.error(`Failed to fetch data from ${source.slug}: ${adapterResult.error}`);
+          logger.error(`Failed to fetch data from ${adapterName} adapter: ${adapterResult.error}`);
           stats.failedIngests++;
           continue;
         }
         
         const items = adapterResult.items as ParsedItem[];
         stats.totalItems += items.length;
-        logger.info(`Fetched ${items.length} items from ${source.slug}`);
+        logger.info(`Fetched ${items.length} items from ${adapterName} adapter (${adapterResult.sourceCount} sources)`);
         
-        // Process items in batches for more efficient embedding generation
-        // This reduces OpenAI API calls from N (one per item) to N/batchSize
-        // Batch size of 10 balances efficiency with error isolation and rate limits
-        const batchSize = config.ingestion.batchSize || 10;
-        const batches = [];
-        for (let i = 0; i < items.length; i += batchSize) {
-          batches.push(items.slice(i, i + batchSize));
+        // Group items by source_slug for batch processing
+        const itemsBySource = items.reduce((acc, item) => {
+          if (!acc[item.source_slug]) {
+            acc[item.source_slug] = [];
+          }
+          acc[item.source_slug].push(item);
+          return acc;
+        }, {} as Record<string, ParsedItem[]>);
+
+        // Process each source's items in batches
+        for (const [sourceSlug, sourceItems] of Object.entries(itemsBySource)) {
+          const sourceId = sourceSlugToId.get(sourceSlug);
+          if (!sourceId) {
+            logger.warn(`Unknown source slug: ${sourceSlug}, skipping ${sourceItems.length} items`);
+            continue;
+          }
+
+          // Process items in batches for more efficient embedding generation
+          const batchSize = config.ingestion.batchSize || 10;
+          const batches = [];
+          for (let i = 0; i < sourceItems.length; i += batchSize) {
+            batches.push(sourceItems.slice(i, i + batchSize));
+          }
+          
+          const results = await Promise.all(
+            batches.map(batch => 
+              limit(() => processItemsBatch(batch, sourceId, retryOptions))
+            )
+          );
+          
+          // Flatten results and count successes and failures
+          const flatResults = results.flat();
+          flatResults.forEach(result => {
+            if (result.success) {
+              stats.successfulIngests++;
+            } else {
+              stats.failedIngests++;
+            }
+          });
         }
         
-        const results = await Promise.all(
-          batches.map(batch => 
-            limit(() => processItemsBatch(batch, source.id, retryOptions))
-          )
-        );
-        
-        // Flatten results and count successes and failures
-        const flatResults = results.flat();
-        flatResults.forEach(result => {
-          if (result.success) {
-            stats.successfulIngests++;
-          } else {
-            stats.failedIngests++;
-          }
-        });
-        
-        stats.sourcesProcessed++;
+        stats.sourcesProcessed += sources.length;
       } catch (error) {
-        logger.error(`Error processing source ${source.slug}:`, error);
+        logger.error(`Error processing adapter ${adapterName}:`, error);
       }
     }
     

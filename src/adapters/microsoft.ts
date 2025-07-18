@@ -98,7 +98,7 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
   
   return {
     external_id: externalId,
-    source_slug: sourceSlug,
+          source_slug: sourceSlug, // Already correct - uses the feed key
     title: item.title.trim(),
     url: item.link,
     content,

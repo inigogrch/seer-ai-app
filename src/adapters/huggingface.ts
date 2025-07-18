@@ -192,7 +192,7 @@ export async function fetchAndParse(): Promise<ParsedItem[]> {
       
       return {
         external_id: externalId,
-        source_slug: 'huggingface',
+                  source_slug: 'huggingface_papers', // Single feed adapter
         title: paper.title,
         url: paper.url,
         content: '', // Leave empty - ingestion agent will scrape full content

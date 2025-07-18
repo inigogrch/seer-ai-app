@@ -13,7 +13,7 @@ import {
   createSingleEmbeddingExecute,
   getCacheStatsExecute,
   cleanupCacheExecute
-} from '../ingestionTools';
+} from '../ingestion-helpers';
 import { createMockSupabaseClient, createMockOpenAIResponse } from '../../../__tests__/setup';
 
 // Mock dependencies with cache enabled
