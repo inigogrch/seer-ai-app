@@ -41,7 +41,7 @@ CREATE TABLE stories (
     CONSTRAINT stories_url_unique UNIQUE (url),
     CONSTRAINT stories_story_category_check CHECK (
         story_category IS NULL OR 
-        story_category IN ('research', 'news', 'tools', 'analysis', 'tutorial', 'announcement')
+        story_category IN ('news', 'tools', 'research', 'opinion', 'announcement')
     )
 );
 

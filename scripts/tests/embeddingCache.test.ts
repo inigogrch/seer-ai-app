@@ -13,8 +13,8 @@ import {
   createSingleEmbeddingExecute,
   getCacheStatsExecute,
   cleanupCacheExecute
-} from '../ingestion-helpers';
-import { createMockSupabaseClient, createMockOpenAIResponse } from '../../../__tests__/setup';
+} from '../ingestion/tools/ingestion-helpers';
+import { createMockSupabaseClient, createMockOpenAIResponse } from '../../src/__tests__/setup';
 
 // Mock dependencies with cache enabled
 jest.mock('../../../config/environment', () => ({
@@ -44,7 +44,7 @@ jest.mock('../../../utils/openaiClient', () => ({
 }));
 
 import { createClient } from '@supabase/supabase-js';
-import { openai } from '../../../utils/openaiClient';
+import { openai } from '../../src/utils/openaiClient';
 
 const mockCreateClient = jest.mocked(createClient);
 const mockOpenAI = jest.mocked(openai.embeddings.create);

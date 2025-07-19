@@ -12,9 +12,9 @@ import path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
-import { fetchAdapterDataExecute, fetchActiveSourceSlugsExecute } from '../src/agents/tools/ingestion-helpers';
-import { loadEnvironmentConfig } from '../src/config/environment';
-import { ParsedItem } from '../src/types/adapter';
+import { fetchAdapterDataExecute, fetchActiveSourceSlugsExecute } from '../ingestion/tools/ingestion-helpers';
+import { loadEnvironmentConfig } from '../../src/config/environment';
+import { ParsedItem } from '../../src/types/adapter';
 
 // Schema validation helper
 function validateParsedItem(item: any, sourceName: string): { valid: boolean; errors: string[] } {
@@ -117,13 +117,13 @@ async function testFetchAdapterData() {
     console.log('🔍 Step 2: Testing each adapter...\n');
     
     // Group sources by adapter for better reporting
-    const adapterGroups = sourcesResult.sources.reduce((acc, source) => {
-      if (!acc[source.adapter_name]) {
-        acc[source.adapter_name] = [];
+    const adapterGroups: Record<string, any[]> = {};
+    for (const source of sourcesResult.sources) {
+      if (!adapterGroups[source.adapter_name]) {
+        adapterGroups[source.adapter_name] = [];
       }
-      acc[source.adapter_name].push(source);
-      return acc;
-    }, {} as Record<string, any[]>);
+      adapterGroups[source.adapter_name].push(source);
+    }
     
     for (const [adapterName, sources] of Object.entries(adapterGroups)) {
       console.log(`🔧 Testing adapter: ${adapterName}`);
@@ -135,7 +135,7 @@ async function testFetchAdapterData() {
       
       try {
         const startTime = Date.now();
-        const result = await fetchAdapterDataExecute({ sourceSlug: testSource.slug });
+        const result = await fetchAdapterDataExecute({ adapterName });
         const duration = Date.now() - startTime;
         
         if (result.success) {
@@ -214,10 +214,10 @@ async function testFetchAdapterData() {
     // Step 3: Test error scenarios
     console.log('🚨 Step 3: Testing error scenarios...\n');
     
-    // Test 3a: Non-existent source
-    console.log('Testing non-existent source...');
+    // Test 3a: Non-existent adapter
+    console.log('Testing non-existent adapter...');
     try {
-      const result = await fetchAdapterDataExecute({ sourceSlug: 'non-existent-source' });
+      const result = await fetchAdapterDataExecute({ adapterName: 'non-existent-adapter' });
       if (result.success) {
         console.log(`   ❌ Expected failure but got success`);
       } else {
@@ -227,10 +227,10 @@ async function testFetchAdapterData() {
       console.log(`   ❌ Unexpected exception: ${error}`);
     }
     
-    // Test 3b: Invalid source slug format
-    console.log('\nTesting invalid source slug...');
+    // Test 3b: Invalid adapter name format
+    console.log('\nTesting invalid adapter name...');
     try {
-      const result = await fetchAdapterDataExecute({ sourceSlug: 'invalid/slug/format' });
+      const result = await fetchAdapterDataExecute({ adapterName: 'invalid/adapter/format' });
       if (result.success) {
         console.log(`   ❌ Expected failure but got success`);
       } else {

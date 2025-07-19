@@ -49,9 +49,9 @@ const parser = new Parser({
   }
 });
 
-export async function fetchAndParse(feedSlug?: string): Promise<ParsedItem[]> {
-  // If no feedSlug provided, fetch all arXiv feeds
-  if (!feedSlug) {
+export async function fetchAndParse(feedSlugs?: string[]): Promise<ParsedItem[]> {
+  // If no feedSlugs provided, fetch all arXiv feeds
+  if (!feedSlugs || feedSlugs.length === 0) {
     const allItems: ParsedItem[] = [];
     for (const slug of Object.keys(ARXIV_FEEDS)) {
       const items = await fetchSingleFeed(slug);
@@ -60,7 +60,13 @@ export async function fetchAndParse(feedSlug?: string): Promise<ParsedItem[]> {
     return allItems;
   }
   
-  return fetchSingleFeed(feedSlug);
+  // Process each requested feed slug
+  const allItems: ParsedItem[] = [];
+  for (const feedSlug of feedSlugs) {
+    const items = await fetchSingleFeed(feedSlug);
+    allItems.push(...items);
+  }
+  return allItems;
 }
 
 async function fetchSingleFeed(feedSlug: string): Promise<ParsedItem[]> {

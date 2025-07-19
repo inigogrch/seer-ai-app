@@ -45,7 +45,10 @@ INSERT INTO sources (name, slug, type, endpoint_url, adapter_name, fetch_freq_mi
 ('TLDR Tech Newsletter', 'tldr_tech', 'rss', 'https://tldr.tech/api/rss/tech', 'tldr', 1440, 70, true),
 
 -- VentureBeat (adapter: ventureBeat)
-('VentureBeat', 'venturebeat', 'rss', 'https://venturebeat.com/feed/', 'ventureBeat', 90, 75, true)
+('VentureBeat', 'venturebeat', 'rss', 'https://venturebeat.com/feed/', 'ventureBeat', 90, 75, true),
+
+-- NVIDIA Developer Blog (adapter: nvidia)
+('NVIDIA Developer Blog', 'nvidia_developer', 'rss', 'https://developer.nvidia.com/blog/feed', 'nvidia', 180, 85, true),
 
 ON CONFLICT (name) DO UPDATE SET
     slug = EXCLUDED.slug,

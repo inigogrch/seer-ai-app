@@ -10,12 +10,12 @@ import {
   createSingleEmbeddingExecute,
   upsertSupabaseExecute,
   fetchActiveSourceSlugsExecute 
-} from '../ingestion-helpers';
-import { openai } from '../../../utils/openaiClient';
-import { createMockSupabaseClient, createMockOpenAIResponse } from '../../../__tests__/setup';
+} from '../ingestion/tools/ingestion-helpers';
+import { openai } from '../../src/utils/openaiClient';
+import { createMockSupabaseClient, createMockOpenAIResponse } from '../../src/__tests__/setup';
 
 // Mock external dependencies
-jest.mock('../../../config/environment', () => ({
+jest.mock('../../src/config/environment', () => ({
   loadEnvironmentConfig: () => ({
     openai: { apiKey: 'test-key' },
     supabase: { url: 'test-url', key: 'test-key' },

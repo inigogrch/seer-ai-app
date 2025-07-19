@@ -93,7 +93,7 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
   const publishedAt = item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString();
   const description = normalizeDescription(item);
   
-  // Use RSS description as content since OpenAI blocks direct scraping
+  // Store RSS content in metadata but set content to empty to trigger custom extraction
   const rssContent = item.content || item.contentSnippet || description || '';
   
   return {
@@ -101,13 +101,14 @@ function validateAndNormalizeItem(item: RSSItem, sourceSlug: string): ParsedItem
     source_slug: sourceSlug,
     title: item.title.trim(),
     url: item.link,
-    content: rssContent, // Use RSS content instead of empty string
+    content: '', // Empty to trigger custom OpenAI content extraction
     published_at: publishedAt,
     author: undefined, // OpenAI RSS doesn't include author info
     image_url: undefined, // No image info in RSS feed
     original_metadata: {
       description,
       categories: normalizeCategories(item),
+      rss_content: rssContent, // Store RSS content for fallback
       rss_content_length: rssContent.length,
       raw_item: item
     }
@@ -121,14 +122,28 @@ async function fetchSingleFeed(sourceSlug: string, feedUrl: string): Promise<Par
     const feed = await parser.parseURL(feedUrl);
     const items: ParsedItem[] = [];
     
+    // Filter for articles from 2025 onwards
+    const targetYear = 2025;
+    const jan1_2025 = new Date('2025-01-01T00:00:00Z');
+    
     for (const item of feed.items || []) {
       const normalizedItem = validateAndNormalizeItem(item as RSSItem, sourceSlug);
       if (normalizedItem) {
-        items.push(normalizedItem);
+        // Check if article is from 2025 onwards
+        const publishDate = new Date(normalizedItem.published_at);
+        if (publishDate >= jan1_2025) {
+          items.push(normalizedItem);
+        }
       }
     }
     
-    return items;
+    // Sort by date (newest first) and limit to 200 recent items
+    items.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+    const limitedItems = items.slice(0, 200);
+    
+    console.log(`[OpenAI] Filtered to ${limitedItems.length} articles from ${targetYear} onwards (from ${feed.items?.length || 0} total)`);
+    
+    return limitedItems;
   } catch (error) {
     console.error(`Error fetching OpenAI feed ${sourceSlug}:`, error);
     return [];

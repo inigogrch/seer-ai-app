@@ -22,4 +22,4 @@ WHERE story_category IS NOT NULL;
 -- Feedback indexes
 CREATE INDEX feedback_user_id_idx ON feedback (user_id);
 CREATE INDEX feedback_story_id_idx ON feedback (story_id);
-CREATE INDEX feedback_created_at_idx ON feedback (created_at DESC); 
+CREATE INDEX feedback_created_at_idx ON feedback (created_at DESC);
