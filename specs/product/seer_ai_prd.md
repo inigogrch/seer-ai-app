@@ -116,21 +116,7 @@ Data, AI, and technology professionals face a **documented information‑overloa
 
 ## 8. **Data Sources (MVP)**
 
-| Category           | Source                                              | Adapter Key                                          | Method     |
-| ------------------ | --------------------------------------------------- | ---------------------------------------------------- | ---------- |
-| **Research**       | arXiv (cs, stat)                                    | `arxiv_cs`, `arxiv_stat`                             | RSS        |
-|                    | MIT News – Research, Data, AI                       | `mit_research`, `mit_data`, `mit_ai`                 | RSS        |
-|                    | Hugging Face Papers                                 | `huggingface_papers`                                 | Web‑scrape |
-|                    | Google Research Blog                                | `google_research`                                    | Web‑scrape |
-| **Big Tech Blogs** | AWS Big Data / ML / Startups / Developer / Database | `aws_*`                                              | RSS        |
-|                    | Microsoft 365 Insider, Excel Blog, Power BI Blog    | `microsoft365_insider`, `excel_blog`, `powerbi_blog` | RSS        |
-|                    | OpenAI News                                         | `openai_news`                                        | RSS        |
-|                    | Anthropic News                                      | `anthropic_news`                                     | Web‑scrape |
-| **News Updates**   | Ars Technica                                        | `arstechnica`                                        | RSS        |
-|                    | TechCrunch                                          | `techcrunch`                                         | RSS        |
-|                    | VentureBeat                                         | `venturebeat`                                        | RSS        |
-|                    | TLDR.tech (Tech edition)                            | `tldr_tech`                                          | RSS        |
-|                    | Hacker News Top Stories                             | `hackernews`                                         | API        |
+refer to adapter_spec.md
 
 *Total = 14 primary feeds for MVP ingestion; additional vendor‑specific adapters (dbt Labs, Snowflake) are planned for Wave 2.*
 

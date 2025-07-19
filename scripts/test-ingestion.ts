@@ -13,7 +13,7 @@ import path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
-import { runIngestion } from '../src/agents/ingestionAgent';
+import { runIngestion } from '../src/agents/runIngestion';
 import { fetchActiveSourceSlugsExecute, getCacheStatsExecute } from '../src/agents/tools/ingestion-helpers';
 import { loadEnvironmentConfig } from '../src/config/environment';
 
