@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { ingestionCronHandler } from '../../../agents/ingestionAgent';
+import { ingestionCronHandler } from '../../../agents/runIngestion';
 
 // Verify cron secret if provided
 const CRON_SECRET = process.env.CRON_SECRET;
