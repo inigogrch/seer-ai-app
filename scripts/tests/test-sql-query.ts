@@ -12,7 +12,7 @@ dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 import { createClient } from '@supabase/supabase-js';
-import { loadEnvironmentConfig } from '../src/config/environment';
+import { loadEnvironmentConfig } from '../../src/config/environment';
 
 async function testSQLQuery() {
   console.log('🔍 Testing SQL Query for fetchActiveSourceSlugs\n');

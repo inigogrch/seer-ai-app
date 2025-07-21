@@ -4,7 +4,7 @@
  */
 
 // Mock problematic imports
-jest.mock('../../../config/environment', () => ({
+jest.mock('../../src/config/environment', () => ({
   loadEnvironmentConfig: () => ({
     openai: { apiKey: 'test-key' },
     supabase: { url: 'test-url', key: 'test-key' },
@@ -68,7 +68,7 @@ import {
   upsertSupabaseExecute,
   getCacheStatsExecute,
   cleanupCacheExecute
-} from '../ingestion-helpers';
+} from '../ingestion/tools/ingestion-helpers';
 
 describe('Ingestion Helpers Smoke Tests', () => {
   beforeEach(() => {

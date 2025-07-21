@@ -5,7 +5,7 @@
  * to produce clean, full article text from realistic HTML samples
  */
 
-import { extractMainContentExecute } from '../ingestion-helpers';
+import { extractMainContentExecute } from '../ingestion/tools/ingestion-helpers';
 
 describe('Content Enrichment Pipeline', () => {
 

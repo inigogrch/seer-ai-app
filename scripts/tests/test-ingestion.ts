@@ -13,9 +13,9 @@ import path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
-import { runIngestion } from '../src/agents/runIngestion';
-import { fetchActiveSourceSlugsExecute, getCacheStatsExecute } from '../src/agents/tools/ingestion-helpers';
-import { loadEnvironmentConfig } from '../src/config/environment';
+import { runIngestion } from '../ingestion/ingestion-pipeline';
+import { fetchActiveSourceSlugsExecute, getCacheStatsExecute } from '../ingestion/tools/ingestion-helpers';
+import { loadEnvironmentConfig } from '../../src/config/environment';
 
 async function testIngestion() {
   console.log('🚀 Starting Ingestion Agent Test\n');

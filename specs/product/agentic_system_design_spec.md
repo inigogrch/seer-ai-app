@@ -20,7 +20,7 @@
 
 ### /packages/agents/
 
-- **ingestionAgent.ts** — Handles both ingestion and embedding! Fetches & parses stories from sources, generates OpenAI embeddings, and upserts to DB.
+- **runIngestion.ts** — Handles both ingestion and embedding! Fetches & parses stories from sources, generates OpenAI embeddings, and upserts to DB.
 - **classifierAgent.ts** — Tags/classifies stories (semantic or LLM-based), updates metadata.
 - **retrievalAgent.ts** — Runs SQL K-NN & filtering, returns stories for users/feed/chat.
 - **summarizerAgent.ts** — Handles both summarization (TL;DR, "Why it matters") and all conversational/chat flows. All UI chat responses and context-injected responses are managed here.&#x20;

@@ -13,8 +13,8 @@ import path from 'path';
 dotenv.config({ path: path.join(process.cwd(), '.env.local') });
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
-import { fetchActiveSourceSlugsExecute } from '../src/agents/tools/ingestion-helpers';
-import { loadEnvironmentConfig } from '../src/config/environment';
+import { fetchActiveSourceSlugsExecute } from '../ingestion/tools/ingestion-helpers';
+import { loadEnvironmentConfig } from '../../src/config/environment';
 
 async function testFetchSources() {
   console.log('🧪 Testing fetchActiveSourceSlugs Function\n');

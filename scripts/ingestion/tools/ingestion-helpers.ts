@@ -7,10 +7,11 @@ import { createClient } from '@supabase/supabase-js';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import TurndownService from 'turndown';
-import { openai } from '../../utils/openaiClient';
-import { loadEnvironmentConfig } from '../../config/environment';
-import { ParsedItem } from '../../types/adapter';
+import { openai } from '../../../src/utils/openaiClient';
+import { loadEnvironmentConfig } from '../../../src/config/environment';
+import { ParsedItem } from '../../../src/types/adapter';
 import CryptoJS from 'crypto-js';
+import path from 'path';
 
 // Lazy-loaded config to avoid loading env vars at import time
 let _config: ReturnType<typeof loadEnvironmentConfig> | null = null;
@@ -232,7 +233,10 @@ export const fetchAdapterDataExecute = async ({ adapterName }: { adapterName: st
     }
     
     // Dynamically import the adapter module
-    const adapter = await import(`../../adapters/${adapterName}`);
+    // Use absolute path from project root to avoid path resolution issues
+    const projectRoot = '/Users/benjogerochi/seer-ai-app';
+    const adapterPath = path.join(projectRoot, 'src', 'adapters', adapterName);
+    const adapter = await import(adapterPath);
     
     if (!adapter.fetchAndParse) {
       throw new Error(`Adapter ${adapterName} does not have fetchAndParse method`);
@@ -266,54 +270,211 @@ export const fetchAdapterDataExecute = async ({ adapterName }: { adapterName: st
 };
 
 export const fetchURLContentExecute = async ({ url }: { url: string }) => {
-  try {
-    // Ensure fetch is available
-    if (typeof fetch === 'undefined') {
-      const nodeFetch = require('node-fetch');
-      globalThis.fetch = nodeFetch;
-    }
-    
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; SeerAI/1.0; +https://seerai.app)'
-      }
-    });
-    
-    clearTimeout(timeout);
-    
-    if (!response) {
-      throw new Error('No response from fetch');
-    }
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const html = await response.text();
-    return { success: true, html, contentLength: html.length };
-  } catch (error) {
-    console.error(`Error fetching URL content from ${url}:`, error);
-    const errorMessage = error instanceof Error 
-      ? (error.name === 'AbortError' ? 'Request timeout' : error.message)
-      : 'Unknown error';
-    return { 
-      success: false, 
-      error: errorMessage,
-      html: null 
-    };
+  // Ensure fetch is available
+  if (typeof fetch === 'undefined') {
+    const nodeFetch = require('node-fetch');
+    globalThis.fetch = nodeFetch;
   }
+
+  const isOpenAI = url.includes('openai.com');
+  
+  // Enhanced headers for better bot protection bypass
+  const getHeaders = () => {
+    const baseHeaders = {
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'DNT': '1',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+    };
+
+    if (isOpenAI) {
+      return {
+        ...baseHeaders,
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"macOS"',
+      };
+    } else {
+      return {
+        ...baseHeaders,
+        'User-Agent': 'Mozilla/5.0 (compatible; SeerAI/1.0; +https://seerai.app)'
+      };
+    }
+  };
+
+  const maxRetries = isOpenAI ? 3 : 1;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Add delay for OpenAI requests to be more respectful
+      if (isOpenAI && attempt > 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15 second timeout for OpenAI
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: getHeaders()
+      });
+      
+      clearTimeout(timeout);
+      
+      if (!response) {
+        throw new Error('No response from fetch');
+      }
+      
+      if (!response.ok) {
+        if (response.status === 403 && isOpenAI && attempt < maxRetries) {
+          console.log(`[OpenAI Fetch] Got 403, retrying attempt ${attempt + 1}/${maxRetries}`);
+          lastError = new Error(`HTTP error! status: ${response.status}`);
+          continue;
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const html = await response.text();
+      
+      if (attempt > 1) {
+        console.log(`[OpenAI Fetch] Successfully fetched on attempt ${attempt}`);
+      }
+      
+      return { success: true, html, contentLength: html.length };
+      
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown error');
+      
+      if (attempt === maxRetries) {
+        console.error(`Error fetching URL content from ${url} (attempt ${attempt}/${maxRetries}):`, error);
+        break;
+      }
+    }
+  }
+
+  const errorMessage = lastError 
+    ? (lastError.name === 'AbortError' ? 'Request timeout' : lastError.message)
+    : 'Unknown error';
+    
+  return { 
+    success: false, 
+    error: errorMessage,
+    html: null 
+  };
 };
 
+/**
+ * Custom content extractor for OpenAI articles
+ */
+function extractOpenAIContent(dom: any): { content: string; title: string } {
+  const document = dom.window.document;
+  
+  // Extract title from various possible selectors
+  let title = '';
+  const titleSelectors = [
+    'h1',
+    '[data-testid="title"]',
+    '.post-title',
+    'title'
+  ];
+  
+  for (const selector of titleSelectors) {
+    const titleElement = document.querySelector(selector);
+    if (titleElement && titleElement.textContent?.trim()) {
+      title = titleElement.textContent.trim();
+      break;
+    }
+  }
+  
+  // Extract main content from OpenAI's specific structure
+  const contentParts: string[] = [];
+  
+  // Target the main content containers based on the actual HTML structure
+  const contentSelectors = [
+    // Primary selectors based on actual OpenAI article structure
+    'div[class*="@md:col-span-6"][class*="@md:col-start-4"] p[class*="mb-sm"]',
+    'div[class*="col-span-6"][class*="col-start-4"] p[class*="mb-sm"]',
+    'div[class*="col-span-12"][class*="max-w-none"] p[class*="mb-sm"]',
+    // More specific paragraph selectors
+    'p[class*="mb-sm"][class*="last:mb-0"]',
+    'p.mb-sm.last\\:mb-0',
+    // Broader fallback selectors
+    'div[class*="col-span-"] p',
+    'main p[class*="mb-"]',
+    '.post-content p',
+    '.article-content p',
+    // Generic content paragraphs
+    'p[class*="mb-"]'
+  ];
+  
+  for (const selector of contentSelectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      elements.forEach((element: any) => {
+        const text = element.textContent?.trim();
+        if (text && text.length > 20) { // Filter out very short text
+          contentParts.push(text);
+        }
+      });
+      break; // Use the first selector that finds content
+    }
+  }
+  
+  // If no specific selectors worked, try to extract from any paragraph
+  if (contentParts.length === 0) {
+    console.log('[OpenAI Extraction] No content found with specific selectors, trying generic paragraphs');
+    const allParagraphs = document.querySelectorAll('p');
+    allParagraphs.forEach((p: any) => {
+      const text = p.textContent?.trim();
+      if (text && text.length > 50) { // Only substantial paragraphs
+        contentParts.push(text);
+      }
+    });
+  }
+  
+  // Log extraction results
+  console.log(`[OpenAI Extraction] Found ${contentParts.length} content parts, total length: ${contentParts.join('\n\n').length}`);
+  
+  return {
+    content: contentParts.join('\n\n'),
+    title: title
+  };
+}
+
 export const extractMainContentExecute = async ({ html, url }: { html: string; url: string | null }) => {
+  // Create a DOM from the HTML
+  const dom = new JSDOM(html, { url: url || undefined });
+  
   try {
-    // Create a DOM from the HTML
-    const dom = new JSDOM(html, { url: url || undefined });
     
-    // Use Readability to extract the main content
+    // Check if this is an OpenAI URL and use custom extraction
+    if (url && url.includes('openai.com')) {
+      console.log('Using OpenAI-specific content extraction for:', url);
+      
+      const openaiContent = extractOpenAIContent(dom);
+      
+      if (openaiContent.content && openaiContent.content.length > 100) {
+        return {
+          success: true,
+          content: openaiContent.content,
+          title: openaiContent.title,
+          byline: null,
+          excerpt: openaiContent.content.substring(0, 200) + '...',
+          length: openaiContent.content.length
+        };
+      } else {
+        console.log(`[OpenAI Extraction] Custom extraction yielded ${openaiContent.content.length} chars, trying Readability fallback`);
+      }
+    }
+    
+    // Fallback to generic Readability for other sites or if OpenAI extraction fails
     const reader = new Readability(dom.window.document);
     const article = reader.parse();
     
@@ -342,6 +503,27 @@ export const extractMainContentExecute = async ({ html, url }: { html: string; u
     };
   } catch (error) {
     console.error('Error extracting main content:', error);
+    
+    // Final safety net: try to extract any text content from the page
+    try {
+      const document = dom.window.document;
+      const bodyText = document.body?.textContent?.trim() || '';
+      
+      if (bodyText.length > 100) {
+        console.log(`[Extraction Fallback] Using body text as last resort (${bodyText.length} chars)`);
+        return {
+          success: true,
+          content: bodyText.substring(0, 2000) + (bodyText.length > 2000 ? '...' : ''),
+          title: document.title || '',
+          byline: null,
+          excerpt: bodyText.substring(0, 200) + '...',
+          length: Math.min(bodyText.length, 2000)
+        };
+      }
+    } catch (fallbackError) {
+      console.error('Fallback extraction also failed:', fallbackError);
+    }
+    
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -553,6 +735,8 @@ export const upsertSupabaseExecute = async ({ story }: {
     content: string | null;
     embedding: number[] | null;
     metadata: Record<string, any> | null;
+    story_category: string | null;
+    tags: string[];
   }
 }) => {
   try {

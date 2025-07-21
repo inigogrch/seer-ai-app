@@ -5,7 +5,7 @@
  * Validates: insert/update operations, duplicate prevention, error handling
  */
 
-import { upsertSupabaseExecute } from '../ingestion-helpers';
+import { upsertSupabaseExecute } from '../ingestion/tools/ingestion-helpers';
 import { createClient } from '@supabase/supabase-js';
 
 // Mock Supabase client

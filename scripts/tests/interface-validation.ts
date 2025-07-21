@@ -1,20 +1,20 @@
 #!/usr/bin/env tsx
 // Interface validation script for all adapters
-import { ParsedItem } from '../src/types/adapter';
+import { ParsedItem } from '../../src/types/adapter';
 
 // Import all adapters
-import { fetchAndParse as fetchArxiv } from '../src/adapters/arxiv';
-import { fetchAndParse as fetchMit } from '../src/adapters/mit-research';
-import { fetchAndParse as fetchAws } from '../src/adapters/aws';
-import { fetchAndParse as fetchMicrosoft } from '../src/adapters/microsoft';
-import { fetchAndParse as fetchOpenAI } from '../src/adapters/openai';
-import { fetchAndParse as fetchTechCrunch } from '../src/adapters/techCrunch';
-import { fetchAndParse as fetchVentureBeat } from '../src/adapters/ventureBeat';
-import { fetchAndParse as fetchMitSloan } from '../src/adapters/mit-sloan';
-import { fetchAndParse as fetchTldr } from '../src/adapters/tldr';
-import { fetchAndParse as fetchHuggingface } from '../src/adapters/huggingface';
-import { fetchAndParse as fetchGoogleResearch } from '../src/adapters/google-research';
-import { fetchAndParse as fetchAnthropic } from '../src/adapters/anthropic';
+import { fetchAndParse as fetchArxiv } from '../../src/adapters/arxiv';
+import { fetchAndParse as fetchMit } from '../../src/adapters/mit-research';
+import { fetchAndParse as fetchAws } from '../../src/adapters/aws';
+import { fetchAndParse as fetchMicrosoft } from '../../src/adapters/microsoft';
+import { fetchAndParse as fetchOpenAI } from '../../src/adapters/openai';
+import { fetchAndParse as fetchTechCrunch } from '../../src/adapters/techCrunch';
+import { fetchAndParse as fetchVentureBeat } from '../../src/adapters/ventureBeat';
+import { fetchAndParse as fetchMitSloan } from '../../src/adapters/mit-sloan';
+import { fetchAndParse as fetchTldr } from '../../src/adapters/tldr';
+import { fetchAndParse as fetchHuggingface } from '../../src/adapters/huggingface';
+import { fetchAndParse as fetchGoogleResearch } from '../../src/adapters/google-research';
+import { fetchAndParse as fetchAnthropic } from '../../src/adapters/anthropic';
 
 interface AdapterConfig {
   name: string;

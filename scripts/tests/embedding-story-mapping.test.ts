@@ -8,8 +8,8 @@
 import { 
   createEmbeddingExecute,
   createSingleEmbeddingExecute 
-} from '../ingestion-helpers';
-import { openai } from '../../../utils/openaiClient';
+} from '../ingestion/tools/ingestion-helpers';
+import { openai } from '../../src/utils/openaiClient';
 
 // Mock OpenAI client
 jest.mock('../../../utils/openaiClient', () => ({
