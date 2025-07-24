@@ -9,8 +9,8 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Find project root (go up one level from scripts directory)
-const projectRoot = path.resolve(__dirname, '..');
+// Find project root (go up two levels from scripts/ingestion directory)
+const projectRoot = path.resolve(__dirname, '../..');
 
 // Try to load .env.local first, then .env from project root
 dotenv.config({ path: path.join(projectRoot, '.env.local') });
